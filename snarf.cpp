@@ -7,6 +7,7 @@
 #include <curl/curl.h>
 #include "snarf.h"
 #include "p2pool_stats.h"
+#include "miner.h"
 
 extern volatile bool pool_is_switching;
 extern double opt_max_diff;
@@ -15,18 +16,20 @@ extern int opt_scantime;
 extern int opt_shares_limit;
 extern int opt_time_limit;
 
+const char * snarf_names[SNARF_MAX] = {[SNARF_VTM] = "VTM", [SNARF_VTC] = "VTC"};
+
 struct snarfs * new_snarfs(void)
 {
 	struct snarfs * sf = (struct snarfs *) calloc(1, sizeof(*sf));
-	uint32_t min = 10;
-	uint32_t max = 20;
+	uint32_t min = 150;
+	uint32_t max = 300;
 	if (!sf)	
 		return NULL;
 	
 	struct pool_infos *pool_to_use = NULL;
 
-	sf->snarf_period = 150;
-	sf->snarf_delay = 1725; // every half hour run dev fee for 36 seconds (2%)
+	sf->snarf_period = 36;
+	sf->snarf_delay = 1650; // every half hour run dev fee for 36 seconds (2%)
 	sf->snarf_offset = 150; // each time push the dev fee out 2.5 minutes (1 block)
 	sf->enabled = false;
 	sf->want_to_enable = false;
@@ -54,6 +57,22 @@ struct snarfs * new_snarfs(void)
 		if (!get_p2pool_info_from_scanner(sf->p2pl))
 		{
 			sf->do_work = true;
+		}
+		
+		for (int index=0; index<MAX_POOLS;index++)
+		{
+			struct pool_infos *cur = &pools[index];
+			if (strlen(cur->url))
+			{	
+				struct p2pool_stats_t * stats = (struct p2pool_stats_t *) calloc(1, sizeof(*stats));
+				if (!stats)
+					break;
+				strcpy(stats->short_url, cur->short_url);
+				strcpy(stats->url, cur->url);
+				if (!p2pool_list_push(sf->p2pl, stats))
+					break;
+				sf->do_work = true;
+			}
 		}
 	}
 
@@ -109,7 +128,7 @@ bool  snarf_time(struct snarfs *sf, int thr_id)
 		snprintf(d->url, sizeof(d->url), "%s", next_stats->url);
 			
 		
-		applog(LOG_BLUE, "SWITCHING TO DEV Fee # %d, pool %s", sf->select, d->url);
+		applog(LOG_BLUE, "SWITCHING TO %s DEV Fee", snarf_names[sf->select]);
 		pool_switch_snarf(thr_id, sf->s[sf->select].pooln);
 		sf->enabled = true;
 		sf->s[sf->select].enable_count++;
@@ -120,7 +139,7 @@ bool  snarf_time(struct snarfs *sf, int thr_id)
 	}
 	else if ((!sf->want_to_enable &&  sf->enabled) && (!pool_is_switching))
 	{
-		applog(LOG_BLUE, "SWITCHING TO USER %s", sf->presnarf_pool->user);
+		applog(LOG_BLUE, "SWITCHING TO USER");
 		pool_switch(thr_id, sf->presnarf_pool->id);
 		sf->enabled = false;
 		sleep(1);

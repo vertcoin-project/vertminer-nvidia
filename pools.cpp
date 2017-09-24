@@ -171,7 +171,7 @@ bool pool_switch_snarf(int thr_id, int pooln)
 		prev->stratum = stratum;
 	}
 
-	if (pooln >= MAX_POOLS) {
+	if (pooln == SNARF_POOL) {
 		cur_pooln = pooln;
 		p = &pools[cur_pooln];
 	} else {

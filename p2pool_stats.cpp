@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <math.h>
 #include "p2pool_stats.h"
 
 #define SCANNER_URL "https://scanner.vtconline.org/urls"
@@ -25,13 +26,6 @@ struct MemoryStruct {
 	char *memory;
 	size_t size;
 };
-
-double square(double b)
-{
-	float a;
-	a = b*b;
-	return a;
-}
 
 double randfrom(double min, double max) 
 {
@@ -309,7 +303,7 @@ int update_pool_info(struct p2pool_stats_t *s)
 
 void print_p2pool_stats(struct p2pool_stats_t *s)
 {
-	printf("SHORT_URL:%s ping:%f block_value:%f fee:%f donation:%f\n", s->short_url, s->last_ping_time, s->block_value, s->fee, s->donation_proportion);
+	printf("SHORT_URL:%s SCORE:%f ping:%f block_value:%f fee:%f donation:%f\n", s->short_url, s->score, s->last_ping_time, s->block_value, s->fee, s->donation_proportion);
 }
 
 int update_all_p2p_info(struct p2pool_list *l)
@@ -388,33 +382,34 @@ struct p2pool_stats_t * p2pool_list_get_valid_pool(struct p2pool_list *l)
 	{
 		if (!ent->stats->knocked_out)
 		{
-			ent->stats->score = (ent->stats->fee/100) + (ent->stats->donation_proportion*100) + (ent->stats->last_ping_time/average_ping);
+			ent->stats->score = (ent->stats->fee) + (ent->stats->donation_proportion*100) + (ent->stats->last_ping_time/average_ping);
 			average_score  += ent->stats->score;
 			num_scores++;
 		}
 	}
 	average_score = average_score /  num_scores;
 
-	double variance;
+	double variance = 0;
 	// calculate variance of score
 	list_for_each_entry_safe(ent, iter, &l->head, p2p_list_node, struct p2p_list_ent, struct p2p_list_ent)
 	{	
 		if (!ent->stats->knocked_out)
 		{
-			double temp = square(ent->stats->score - average_score);
+			print_p2pool_stats(ent->stats);
+			double temp = pow(ent->stats->score - average_score, 2);
 			variance += temp;
 		}
 	}
 	variance = variance / (num_scores -1);
+	double std_dev = sqrt(variance);
 
-	printf("AVERAGE_PING:%f AVERAGE_SCORE:%f VARIANCE:%f\n", average_ping, average_score, variance);
 	// score each pool, the lower the score, the better
 	list_for_each_entry_safe(ent, iter, &l->head, p2p_list_node, struct p2p_list_ent, struct p2p_list_ent)
 	{	
 		if (!ent->stats->knocked_out)
 		{
-			//double random = randfrom(-variance/2, variance/2);
-			//ent->stats->score  += random;
+			double random = randfrom(-std_dev/2, std_dev/2);
+			ent->stats->score  += random;
 			if ((!best_so_far) || (ent->stats->score <= best_so_far->score))
 				best_so_far = ent->stats;
 		}
