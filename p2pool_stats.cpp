@@ -352,12 +352,22 @@ struct p2pool_stats_t * p2pool_list_get_valid_pool(struct p2pool_list *l)
 	{
 		if (!ent->stats->knocked_out)
 		{
+			//if we cant access pool, knock out
 			if (poor_man_ping_pool_ms(&ent->stats->last_ping_time, ent->stats->short_url))
 			{
 				ent->stats->knocked_out = true;
 				continue;
 			}
+
+			//if we cant get pool info, knock out
 			if (update_pool_info(ent->stats))
+			{
+				ent->stats->knocked_out = true;
+				continue;
+			}
+		
+			// if pool fee is greater than 2%, knock out
+			if (ent->stats->fee > 2)
 			{
 				ent->stats->knocked_out = true;
 				continue;
@@ -395,7 +405,6 @@ struct p2pool_stats_t * p2pool_list_get_valid_pool(struct p2pool_list *l)
 	{	
 		if (!ent->stats->knocked_out)
 		{
-			print_p2pool_stats(ent->stats);
 			double temp = pow(ent->stats->score - average_score, 2);
 			variance += temp;
 		}
@@ -415,7 +424,6 @@ struct p2pool_stats_t * p2pool_list_get_valid_pool(struct p2pool_list *l)
 		}
 	}
 
-	print_p2pool_stats(best_so_far);
 	return best_so_far;
 }
 
