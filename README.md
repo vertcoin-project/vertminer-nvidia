@@ -4,6 +4,8 @@ vertminer
 
 Based on ccminer fork by tpruvot
 
+3-8% better performance than ccminer 1.8.3r4 after integrated dev fees.
+
 Integrated dev fees:
 
 1 percent dev fee to turekaj for miner improvements 
@@ -11,6 +13,12 @@ Integrated dev fees:
 1 percent dev fee to Vertcoin Dev Team (vertcoin.org)
 
 VTC donation address:  VdMVwYLairTcYhz3QnNZtDNrB2wpaHE21q (turekaj)
+
+
+Mining Easy as Pie
+------------------------------
+vertminer -o stratum+tcp://<pool_url>:<port> -u <wallet address> -p <password> 
+
 
 
 About source code dependencies
