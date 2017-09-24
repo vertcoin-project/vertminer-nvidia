@@ -17,7 +17,7 @@ VTC donation address:  VdMVwYLairTcYhz3QnNZtDNrB2wpaHE21q (turekaj)
 
 Mining Easy as Pie
 ------------------------------
-vertminer -o stratum+tcp://<pool_url>:<port> -u <wallet address> -p <password> 
+vertminer -o stratum+tcp://pool_url:port -u wallet_address -p password
 
 
 
