@@ -2,13 +2,17 @@ vertminer
 =======
 
 
-Based on ccminer Fork by tpruvot
+Based on ccminer fork by tpruvot
 
 Integrated dev fees:
+
 1 percent dev fee to turekaj for miner improvements 
+
 1 percent dev fee to Vertcoin Dev Team (vertcoin.org)
 
 VTC donation address:  VdMVwYLairTcYhz3QnNZtDNrB2wpaHE21q (turekaj)
+
+
 About source code dependencies
 ------------------------------
 
