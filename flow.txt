@@ -1,0 +1,137 @@
+main
+init locks
+determine number of cpus
+get number of gpus
+parse commandline
+initialize stratum data
+select pool
+set 1 thread per gpu
+create work_restart struct for each thread
+free the queue
+create thr_info struct for each thread + 4
+
+longpoll thread is num_threads + 1, start longpoll thread
+stratum thread is num_threads + 2, start stratum thread
+workio thread is num_threads, start workio_thread
+
+send work to stratum thread
+if opt_api_listen, start up api_thr on num_threads + 3
+for threads 0 to num_threads - 1, intiialize a miner thread and start ti
+
+wait for workio thread to exit
+wait for mining threads to exit
+
+
+how threads work here.
+
+Each thread has a queue.
+This queue consists of tq_ents linked together in a circular linked list
+This queue has a mutex (lock), a frozen flag, and a cond flag.
+each tq_ent has contains a linked list node and void pointer to data 
+
+tq push allocates a new tq_ent, puts the address to "data" in the struct, initializes
+the list head in tq_ent,locks the tq, and if tq is not frozen, appends the new tq_ent to 
+tq (tail).Else, frees ent and returns false. Cond signal is set and tq is unlocked.
+
+tq pop is how someone gets data from the queue.
+
+stratum thread:
+	pop stratum url off the stack
+
+while !stratum.curl and not abort, restart threads. This sets restart = 1 in each work_resart struct
+connect ot stratum, subscribe, and authorize
+if stratum fails to connect, try again, if retry too many times, kill workio thread
+generate work from stratum
+restart threads
+unlock g_work
+get line from stratum
+do waht stratum says
+send response
+on pool switch, diconnect stratum. then go back to waiting for a stratum url.
+
+
+workio thread:
+initialize curl
+wait for workio command:
+	- get work
+		allocate a work structure
+		assign a pool
+		get upstream work
+		if that failed, send null to the requesting thread
+		else send work to the requesting thread
+
+	- submit work
+	-abort
+clean up curl
+freeze the thread's queue
+
+
+miner thread:
+clear out work
+set end_nonce to MAX / num_threads * (thr_id + 1) - (thr_id + 1)
+bind this thread to a cpu
+while no abort:
+lock the g_work_lock
+ask stratum for work if nonce >= end_nonce
+obtain work from wioio thread (get_work)
+memcpy g_work to work
+
+
+possibly use wanna_mine (conditional mining) to change pools? 
+
+
+
+
+
+main:
+determine hardware (gpus, cpus)
+get first valid pool and set it to active
+every miner thread has a work_restart struct and every thread has a thr_info struct
+create longpoll thread
+create stratum thread
+create workio thread
+push rpc_url onto stratum thread queue (tell stratum to connect)
+create a thread for each miner thread
+
+main loop simply waits for the workio thread to exit
+then it waits for the mining threads to exit.
+
+stratum thread starts by waiting for work. 
+Then he sets up some structures and tells all miner threads to restart (if restart_threads is true)
+He then connects to stratum, passing info from the pool struct, which was looked up via curpooln
+If something goes wrong, he aborts the workio thread, which will eventually cause main to complete
+stratum thread then generates work, and puts it in the g_work structure
+he then reads a line from stratum, and handles the response.
+
+workio thread:
+sets up curl, and then waits for a workio_cmd, which has the thread ID of the requester.
+on a GET_WORK cmd, he will allocate a work structure, and assign it the pool number.
+next he will ask for upstream work by creating the json_rpc_calls, which push work onto the stratum thread. If workio determines that pool has stratum, push pool onto stratum. This returns val.
+Decode josn object val into work. Keep asking for work until its available. Once work is gotten, put it on the mining thread who asked for the works queue. 
+
+
+miner thread:
+create a work structure
+tell stratum to populate the g_work structure. If stratum returns work, reset g_work_time
+copy the g_work structure into a work structure. 
+Scan nonces for a POW hash. continue until one is found. generate stats.
+submit work to workio thread
+
+WC_GET_WORK is used for GET_WORK. Stratum thread is used for STRATUM. 
+WORKIO THREAD IS MAINLY USED FOR SUBMITTING SHARES. 
+
+
+
+THE RESULT:
+Each miner thread should know what pool he is currently working on. 
+The miner thread should be able to look up what stratum ctx is used by that pool
+The WORKIO thread can get this info from accessing the thread object of the workio_cmd at submit time.
+Each stratum thread needs an associated pool as well. 
+
+who keeps track of the work done?
+what i mean is who controls the dev fee?
+
+workio could simply hand out a % of the work to be done.But with changing difficulty that is not necessarily fair.
+
+can workIO add up total work time on each submittal, and ensure that dev is only taking X % of the total work time?
+
