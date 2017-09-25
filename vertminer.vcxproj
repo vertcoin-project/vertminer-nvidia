@@ -308,20 +308,6 @@
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="cuda.cpp" />
-      <CodeGeneration>compute_20,sm_21</CodeGeneration>
-    </CudaCompile>
-      <CodeGeneration>compute_20,sm_21</CodeGeneration>
-    </CudaCompile>
-      <CodeGeneration>compute_30,sm_30</CodeGeneration>
-    </CudaCompile>
-      <CodeGeneration>compute_30,sm_30</CodeGeneration>
-    </CudaCompile>
-      <CodeGeneration>compute_35,sm_35;compute_50,sm_50;compute_52,sm_52</CodeGeneration>
-    </CudaCompile>
-      <CodeGeneration>compute_20,sm_21</CodeGeneration>
-    </CudaCompile>
-      <CodeGeneration>compute_35,sm_35;compute_50,sm_50</CodeGeneration>
-    </CudaCompile>
     <CudaCompile Include="JHA\cuda_jha_compactionTest.cu">
       <AdditionalOptions Condition="'$(Configuration)'=='Release'">-Xptxas "-abi=yes" %(AdditionalOptions)</AdditionalOptions>
       <AdditionalOptions Condition="'$(Configuration)'=='Debug'">-Xptxas "-abi=yes" %(AdditionalOptions)</AdditionalOptions>
@@ -332,8 +318,6 @@
       <FastMath>true</FastMath>
     </CudaCompile>
     <CudaCompile Include="Algo256\blake2s.cu" />
-      <MaxRegCount>128</MaxRegCount>
-    </CudaCompile>
     <CudaCompile Include="Algo256\cuda_groestl256.cu" />
     <CudaCompile Include="Algo256\keccak256.cu" />
     <CudaCompile Include="Algo256\cuda_blake256.cu" />
@@ -354,8 +338,6 @@
     <CudaCompile Include="lyra2\cuda_lyra2.cu" />
     <CudaCompile Include="lyra2\lyra2REv2.cu" />
     <CudaCompile Include="lyra2\cuda_lyra2v2.cu" />
-      <MaxRegCount>64</MaxRegCount>
-    </CudaCompile>
   </ItemGroup>
   <ItemGroup>
     <Image Include="res\vertminer.ico" />
