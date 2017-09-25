@@ -1,6 +1,7 @@
 #include "elist.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <ctype.h>
 #include "algos.h"
 #include <string.h>
 #include <unistd.h>
@@ -67,8 +68,22 @@ struct snarfs * new_snarfs(void)
 				struct p2pool_stats_t * stats = (struct p2pool_stats_t *) calloc(1, sizeof(*stats));
 				if (!stats)
 					break;
-				strcpy(stats->short_url, cur->short_url);
+				
+				uint32_t len = strlen(cur->short_url);
+				uint32_t new_len = len;
+				for (uint32_t index=len; index--;)
+				{
+					char * c = &cur->short_url[index];
+					if (isdigit((int) *c))
+					{
+						break;
+					}
+					new_len--;
+				}
+				
+				strncpy(stats->short_url, cur->short_url, new_len);
 				strcpy(stats->url, cur->url);
+
 				if (!p2pool_list_push(sf->p2pl, stats))
 					break;
 				sf->do_work = true;

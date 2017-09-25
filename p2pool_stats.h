@@ -2,6 +2,7 @@
 #define P2POOL_LOCAL_STATS_H
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "elist.h"
 #include <pthread.h>
 

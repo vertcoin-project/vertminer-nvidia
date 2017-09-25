@@ -182,7 +182,7 @@
 #define STDC_HEADERS 1
 
 /* Version number of package */
-#define VERSION "0.0.9"
+#define VERSION "1.8.3"
 
 /* Define curl_free() as free() if our version of curl lacks curl_free. */
 /* #undef curl_free */
