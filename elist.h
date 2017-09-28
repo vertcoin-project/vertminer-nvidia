@@ -178,6 +178,11 @@ static __inline void list_splice_init(struct list_head *list,
 #define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
 #endif
 
+#ifdef _MSC_VER
+#ifndef container_of
+#define container_of(ptr, type, member) ((type *) ((PCHAR)(ptr) - (ULONG_PTR)(&((type *)0)->member)))
+#endif
+#endif
 
 #ifndef container_of
 #define container_of(ptr, type, member) ({                      \

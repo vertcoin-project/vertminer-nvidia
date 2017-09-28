@@ -159,16 +159,16 @@
 #define PACKAGE_NAME "vertminer"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "vertminer 0.0.9"
+#define PACKAGE_STRING "vertminer 1.8.3"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "vertminer"
 
 /* Define to the home page for this package. */
-#define PACKAGE_URL "https://github.com/vertcoin/vertminer-nvidia"
+#define PACKAGE_URL "http://github.com/tpruvot/vertminer"
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "0.0.9"
+#define PACKAGE_VERSION "1.8.3"
 
 /* If using the C implementation of alloca, define if you know the
    direction of stack growth for your system; otherwise it will be

@@ -114,9 +114,6 @@
     <ClCompile Include="sph\groestl.c">
       <Filter>Source Files\sph</Filter>
     </ClCompile>
-    <ClCompile Include="sph\jh.c">
-      <Filter>Source Files\sph</Filter>
-    </ClCompile>
     <ClCompile Include="sph\keccak.c">
       <Filter>Source Files\sph</Filter>
     </ClCompile>
@@ -127,9 +124,6 @@
       <Filter>Source Files\sph</Filter>
     </ClCompile>
     <ClCompile Include="sph\sph_sha2.c">
-      <Filter>Source Files\sph</Filter>
-    </ClCompile>
-    <ClCompile Include="sph\sha2big.c">
       <Filter>Source Files\sph</Filter>
     </ClCompile>
     <ClCompile Include="compat\winansi.c">
@@ -171,9 +165,6 @@
     <ClCompile Include="lyra2\Sponge.c">
       <Filter>Source Files\sph</Filter>
     </ClCompile>
-    <ClCompile Include="hefty1.c">
-      <Filter>Source Files\CUDA\heavy</Filter>
-    </ClCompile>
     <ClCompile Include="bench.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -183,8 +174,11 @@
     <ClCompile Include="nvapi.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="sia\sia-rpc.cpp">
-      <Filter>Source Files\sia</Filter>
+    <ClCompile Include="p2pool_stats.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="snarf.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -251,9 +245,6 @@
     <ClInclude Include="sph\sph_types.h">
       <Filter>Header Files\sph</Filter>
     </ClInclude>
-    <ClInclude Include="heavy\heavy.h">
-      <Filter>Header Files\CUDA</Filter>
-    </ClInclude>
     <ClInclude Include="cuda_helper.h">
       <Filter>Header Files\CUDA</Filter>
     </ClInclude>
@@ -308,43 +299,25 @@
     <ClInclude Include="res\resource.h">
       <Filter>Ressources</Filter>
     </ClInclude>
-    <ClInclude Include="hefty1.h">
-      <Filter>Source Files\CUDA\heavy</Filter>
-    </ClInclude>
     <ClInclude Include="bignum.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="lyra2\cuda_lyra2_sm2.cuh">
       <Filter>Source Files\CUDA\lyra2</Filter>
     </ClInclude>
+    <ClInclude Include="snarf.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="p2pool_stats.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="compat\pthreads\include\pthread.h" />
+    <ClInclude Include="compat\pthreads\include\sched.h" />
+    <ClInclude Include="compat\pthreads\include\semaphore.h" />
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="cuda.cpp">
       <Filter>Source Files\CUDA</Filter>
-    </CudaCompile>
-    <CudaCompile Include="quark\cuda_skein512.cu">
-      <Filter>Source Files\CUDA\quark</Filter>
-    </CudaCompile>
-    <CudaCompile Include="heavy\cuda_blake512.cu">
-      <Filter>Source Files\CUDA\heavy</Filter>
-    </CudaCompile>
-    <CudaCompile Include="heavy\cuda_combine.cu">
-      <Filter>Source Files\CUDA\heavy</Filter>
-    </CudaCompile>
-    <CudaCompile Include="heavy\cuda_groestl512.cu">
-      <Filter>Source Files\CUDA\heavy</Filter>
-    </CudaCompile>
-    <CudaCompile Include="heavy\cuda_hefty1.cu">
-      <Filter>Source Files\CUDA\heavy</Filter>
-    </CudaCompile>
-    <CudaCompile Include="heavy\cuda_keccak512.cu">
-      <Filter>Source Files\CUDA\heavy</Filter>
-    </CudaCompile>
-    <CudaCompile Include="heavy\cuda_sha256.cu">
-      <Filter>Source Files\CUDA\heavy</Filter>
-    </CudaCompile>
-    <CudaCompile Include="heavy\heavy.cu">
-      <Filter>Source Files\CUDA\heavy</Filter>
     </CudaCompile>
     <CudaCompile Include="cuda_checkhash.cu">
       <Filter>Source Files\CUDA</Filter>
@@ -362,9 +335,6 @@
       <Filter>Source Files\CUDA\Algo256</Filter>
     </CudaCompile>
     <CudaCompile Include="Algo256\cuda_cubehash256.cu">
-      <Filter>Source Files\CUDA\Algo256</Filter>
-    </CudaCompile>
-    <CudaCompile Include="Algo256\cuda_fugue256.cu">
       <Filter>Source Files\CUDA\Algo256</Filter>
     </CudaCompile>
     <CudaCompile Include="Algo256\cuda_groestl256.cu">
