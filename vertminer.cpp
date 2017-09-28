@@ -142,7 +142,7 @@ int opt_nfactor = 0;
 bool opt_autotune = true;
 
 // pools (failover/getwork infos)
-struct pool_infos pools[MAX_POOLS] = { 0 };
+struct pool_infos pools[MAX_POOLS+1] = { 0 };
 int num_pools = 1;
 volatile int cur_pooln = 0;
 bool opt_pool_failover = true;
@@ -159,8 +159,8 @@ char *rpc_url;
 char *short_url = NULL;
 
 struct stratum_ctx stratum = { 0 };
-pthread_mutex_t stratum_sock_lock;
-pthread_mutex_t stratum_work_lock;
+pthread_mutex_t stratum_sock_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t stratum_work_lock = PTHREAD_MUTEX_INITIALIZER;
 
 
 static unsigned char pk_script[25] = { 0 };

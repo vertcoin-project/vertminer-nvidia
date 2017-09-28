@@ -11,9 +11,9 @@
 #define NETWORK2_PORT_STR "9181"
 #define COLON_STR ":"
 #define STRATUM_TCP_STR  "stratum+tcp://"
-#define LOCAL_STATS_TIMEOUT  20
-#define POOL_PING_STATS_TIMEOUT 1 
-#define SCANNER_TIMEOUT 20
+#define LOCAL_STATS_TIMEOUT  20000
+#define POOL_PING_STATS_TIMEOUT  500
+#define SCANNER_TIMEOUT 20000
 
 
 struct  p2p_list_ent {
@@ -67,7 +67,7 @@ char *curl_get_response(char *url, long timeout)
 	if (!curl_handle)
 		return NULL;
 
-	curl_easy_setopt(curl_handle, CURLOPT_TIMEOUT, timeout);
+	curl_easy_setopt(curl_handle, CURLOPT_TIMEOUT_MS, timeout);
 	curl_easy_setopt(curl_handle, CURLOPT_URL, url);
 	curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
 	curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void *) &chunk);

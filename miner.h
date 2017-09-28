@@ -637,7 +637,7 @@ struct pool_infos {
 };
 
 
-extern struct pool_infos pools[MAX_POOLS];
+extern struct pool_infos pools[MAX_POOLS+1];
 extern int num_pools;
 extern volatile int cur_pooln;
 

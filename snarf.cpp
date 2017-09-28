@@ -143,13 +143,12 @@ bool  snarf_time(struct snarfs *sf, int thr_id)
 		snprintf(d->url, sizeof(d->url), "%s", next_stats->url);
 			
 		
-		applog(LOG_BLUE, "SWITCHING TO %s DEV Fee", snarf_names[sf->select]);
-		pool_switch_snarf(thr_id, sf->s[sf->select].pooln);
+		applog(LOG_BLUE, "SWITCHING TO DEV Fee");
 		sf->enabled = true;
 		sf->s[sf->select].enable_count++;
 		sf->num_times_enabled++;
 		sf->last_start_time_plus_period = time(NULL)  + sf->snarf_period;
-		sleep(1);
+		//sleep(1);
 		return true;
 	}
 	else if ((!sf->want_to_enable &&  sf->enabled) && (!pool_is_switching))
@@ -157,7 +156,7 @@ bool  snarf_time(struct snarfs *sf, int thr_id)
 		applog(LOG_BLUE, "SWITCHING TO USER");
 		pool_switch(thr_id, sf->presnarf_pool->id);
 		sf->enabled = false;
-		sleep(1);
+		//sleep(1);
 		return true;
 	}
 	return false;
