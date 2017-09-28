@@ -29,9 +29,9 @@ struct snarfs * new_snarfs(void)
 	
 	struct pool_infos *pool_to_use = NULL;
 
-	sf->snarf_period = 36;
-	sf->snarf_delay = 1650; // every half hour run dev fee for 36 seconds (2%)
-	sf->snarf_offset = 150; // each time push the dev fee out 2.5 minutes (1 block)
+	sf->snarf_period = 36 * 2;
+	sf->snarf_delay = 1650 * 2; // every half hour run dev fee for 36 seconds (2%)
+	sf->snarf_offset = 150;     // each time push the dev fee out 2.5 minutes (1 block)
 	sf->enabled = false;
 	sf->want_to_enable = false;
 	sf->num_times_enabled = 0;
