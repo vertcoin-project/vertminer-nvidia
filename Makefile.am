@@ -74,4 +74,6 @@ Algo256/blake256.o: Algo256/blake256.cu
 Algo256/cuda_bmw.o: Algo256/cuda_bmw.cu
 	$(NVCC) $(nvcc_FLAGS) --maxrregcount=76 -o $@ -c $<
 
+skein.o: skein.cu
+	$(NVCC) $(nvcc_FLAGS) --maxrregcount=64 -o $@ -c $<
 
