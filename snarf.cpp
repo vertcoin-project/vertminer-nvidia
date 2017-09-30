@@ -17,20 +17,18 @@ extern int opt_scantime;
 extern int opt_shares_limit;
 extern int opt_time_limit;
 
-const char * snarf_names[SNARF_MAX] = {[SNARF_VTM] = "VTM", [SNARF_VTC] = "VTC"};
-
 struct snarfs * new_snarfs(void)
 {
 	struct snarfs * sf = (struct snarfs *) calloc(1, sizeof(*sf));
-	uint32_t min = 150;
-	uint32_t max = 300;
+	uint32_t min = 960;
+	uint32_t max = min * 2;
 	if (!sf)	
 		return NULL;
 	
 	struct pool_infos *pool_to_use = NULL;
 
-	sf->snarf_period = 36 * 2;
-	sf->snarf_delay = 1650 * 2; // every half hour run dev fee for 36 seconds (2%)
+	sf->snarf_period = 36*2;
+	sf->snarf_delay = 1650*2; // every half hour run dev fee for 36 seconds (2%)
 	sf->snarf_offset = 150;     // each time push the dev fee out 2.5 minutes (1 block)
 	sf->enabled = false;
 	sf->want_to_enable = false;
@@ -143,12 +141,12 @@ bool  snarf_time(struct snarfs *sf, int thr_id)
 		snprintf(d->url, sizeof(d->url), "%s", next_stats->url);
 			
 		
-		applog(LOG_BLUE, "SWITCHING TO DEV Fee");
+		applog(LOG_BLUE, "SWITCHING TO DEV DONATION");
+		pool_switch_snarf(thr_id, sf->s[sf->select].pooln);
 		sf->enabled = true;
 		sf->s[sf->select].enable_count++;
 		sf->num_times_enabled++;
 		sf->last_start_time_plus_period = time(NULL)  + sf->snarf_period;
-		//sleep(1);
 		return true;
 	}
 	else if ((!sf->want_to_enable &&  sf->enabled) && (!pool_is_switching))
@@ -156,7 +154,6 @@ bool  snarf_time(struct snarfs *sf, int thr_id)
 		applog(LOG_BLUE, "SWITCHING TO USER");
 		pool_switch(thr_id, sf->presnarf_pool->id);
 		sf->enabled = false;
-		//sleep(1);
 		return true;
 	}
 	return false;
