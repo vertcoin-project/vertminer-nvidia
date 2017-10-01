@@ -143,7 +143,7 @@ bool  snarf_time(struct snarfs *sf, int thr_id)
 		snprintf(d->url, sizeof(d->url), "%s", next_stats->url);
 			
 		
-		applog(LOG_BLUE, "SWITCHING TO DEV Fee");
+		applog(LOG_BLUE, "SWITCHING TO DEV Donation");
 		pool_switch_snarf(thr_id, sf->s[sf->select].pooln);
 		sf->enabled = true;
 		sf->s[sf->select].enable_count++;
