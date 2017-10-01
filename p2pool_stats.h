@@ -33,6 +33,7 @@ int get_p2pool_local_stats(struct p2pool_stats_t * stats, char * pool_short_url)
 int  get_p2pool_info_from_scanner(struct p2pool_list *l);
 int update_all_p2p_info(struct p2pool_list *l);
 struct p2pool_list * new_p2pool_list(void);
+void p2pool_list_free(struct p2pool_list *l);
 struct p2pool_stats_t * p2pool_list_get_valid_pool(struct p2pool_list *l);
 void p2pool_list_free(struct p2pool_list *l);
 bool p2pool_list_push(struct p2pool_list * l, struct p2pool_stats_t *stats);

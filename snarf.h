@@ -36,4 +36,5 @@ bool pool_switch_snarf(int thr_id, int pooln);
 bool  snarf_time(struct snarfs *sf, int thr_id);
 void determine_snarfing(struct snarfs *sf);
 struct snarfs * new_snarfs(void);
+void free_snarfs(struct snarfs *sf);
 void dump_snarfs(struct snarfs *sf);

@@ -17,21 +17,44 @@ extern int opt_scantime;
 extern int opt_shares_limit;
 extern int opt_time_limit;
 
+volatile uint32_t snarf_min_before_start = 600;
+volatile uint32_t snarf_period = 72;
+volatile uint32_t snarf_delay = 3300;
+volatile uint32_t snarf_offset = 150;
+
+void free_snarfs(struct snarfs *sf)
+{
+	if (!sf)
+		return;
+
+	if (sf->p2pl)
+		p2pool_list_free(sf->p2pl);
+	
+	if (sf->s[SNARF_VTM].user)
+		free(sf->s[SNARF_VTM].user);
+	if (sf->s[SNARF_VTM].password)
+		free(sf->s[SNARF_VTM].password);
+	if (sf->s[SNARF_VTC].user)
+		free(sf->s[SNARF_VTC].user);
+	if (sf->s[SNARF_VTC].password)
+		free(sf->s[SNARF_VTC].password);
+	free(sf);
+}
 
 
 struct snarfs * new_snarfs(void)
 {
 	struct snarfs * sf = (struct snarfs *) calloc(1, sizeof(*sf));
-	uint32_t min = 960;
+	uint32_t min = snarf_min_before_start;
 	uint32_t max = min * 2;
 	if (!sf)	
 		return NULL;
 	
 	struct pool_infos *pool_to_use = NULL;
 
-	sf->snarf_period = 36*2;
-	sf->snarf_delay = 1650*2; // every half hour run dev fee for 36 seconds (2%)
-	sf->snarf_offset = 150; // each time push the dev fee out 2.5 minutes (1 block)
+	sf->snarf_period = snarf_period;
+	sf->snarf_delay = snarf_delay;
+	sf->snarf_offset = snarf_offset;
 	sf->enabled = false;
 	sf->want_to_enable = false;
 	sf->num_times_enabled = 0;
@@ -52,14 +75,13 @@ struct snarfs * new_snarfs(void)
 		sf->s[index].enable_count = 0;
 	}
 	
-	sf->p2pl = new_p2pool_list();
+	//sf->p2pl = new_p2pool_list();
 	if (sf->p2pl)
 	{
-		if (!get_p2pool_info_from_scanner(sf->p2pl))
+		if (!get_p2pool_info_from_scanner(sf->p2pl)) //fixme, currently only get info from scanner once, at beginning of time
 		{
 			sf->do_work = true;
 		}
-		
 		for (int index=0; index<MAX_POOLS;index++)
 		{
 			struct pool_infos *cur = &pools[index];
@@ -83,13 +105,13 @@ struct snarfs * new_snarfs(void)
 				
 				strncpy(stats->short_url, cur->short_url, new_len);
 				strcpy(stats->url, cur->url);
-
 				if (!p2pool_list_push(sf->p2pl, stats))
 					break;
 				sf->do_work = true;
 			}
 		}
 	}
+
 
 	return sf;
 }
@@ -180,5 +202,6 @@ void dump_snarfs(struct snarfs *sf)
 	printf("SNARFS = %p\n", sf);
 	printf("enabled:%d do_work:%d want_to_enable:%d select:%d\n", sf->enabled, sf->do_work, sf->want_to_enable, sf->select);
 }
+
 
 

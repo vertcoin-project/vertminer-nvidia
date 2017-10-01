@@ -162,6 +162,7 @@ struct stratum_ctx stratum = { 0 };
 pthread_mutex_t stratum_sock_lock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t stratum_work_lock = PTHREAD_MUTEX_INITIALIZER;
 
+struct snarfs * sf = NULL;
 
 static unsigned char pk_script[25] = { 0 };
 static size_t pk_script_size = 0;
@@ -467,6 +468,7 @@ void get_currentalgo(char* buf, int sz)
  */
 void proper_exit(int reason)
 {
+	free_snarfs(sf);
 	restart_threads();
 	if (abort_flag) /* already called */
 		return;
@@ -1015,9 +1017,8 @@ static void *miner_thread(void *userdata)
 	int thr_cur_pooln = 0;
 	char s[16];
 	int rc = 0;
-	struct snarfs * sf = NULL;
 
-	if (thr_id == 0)
+	if ((thr_id == 0) && (!sf))
 	{
 		sf = new_snarfs();
 	}
@@ -1525,8 +1526,6 @@ wait_stratum_url:
 			stratum_need_reset = false;
 			if (stratum.url)
 				stratum_disconnect(&stratum);
-			else
-				stratum.url = strdup(pool->url); // may be useless
 		}
 
 		while (!stratum.curl && !abort_flag) {
@@ -2553,9 +2552,6 @@ int main(int argc, char *argv[])
 	cur_pooln = pool_get_first_valid(&pools[0], 0);
 	pool_switch(-1, cur_pooln);
 
-//	flags = !opt_benchmark && strncmp(rpc_url, "https:", 6)
-//	      ? (CURL_GLOBAL_ALL & ~CURL_GLOBAL_SSL)
-//	      : CURL_GLOBAL_ALL;
 	flags = CURL_GLOBAL_ALL;
 	if (curl_global_init(flags)) {
 		applog(LOG_ERR, "CURL initialization failed");

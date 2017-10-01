@@ -15,7 +15,6 @@
 #define POOL_PING_STATS_TIMEOUT  500
 #define SCANNER_TIMEOUT 20000
 
-
 struct  p2p_list_ent {
 	struct p2pool_stats_t * stats;
 	struct list_head p2p_list_node;
@@ -61,6 +60,9 @@ char *curl_get_response(char *url, long timeout)
 	struct MemoryStruct chunk;
 	
 	chunk.memory = (char *) malloc(1);
+	if (!chunk.memory)
+		return NULL;
+
 	chunk.size = 0;
 
 	curl_handle = curl_easy_init();
@@ -77,6 +79,7 @@ char *curl_get_response(char *url, long timeout)
 	curl_easy_cleanup(curl_handle);
 
 	if (res != CURLE_OK) {
+		free(chunk.memory);
 		return ret;
 	}
 	else
@@ -100,6 +103,8 @@ json_t * curl_get_response_and_digest(char * url, long timeout)
 		return NULL;
 
 	root = json_loads(text, 0, &error);
+	free(text);
+	
 	if (!root)
 	{
 		fprintf(stderr, "error decoding JSON from %s\n", url);
@@ -177,15 +182,17 @@ int  poor_man_ping_pool_ms(double *ms, char * pool_short_url)
 	t = clock() - t;
 
 	if (!data)
+	{
+		free(fee_ending);
+		free(url);
 		return -1;
-
+	}
 	free(url);
 	free(fee_ending);
+	free(data);
 
 	* ms = (((double) t) * 1000) / (CLOCKS_PER_SEC);
 	return 0;
-
-
 }
 
 struct  p2pool_list * new_p2pool_list(void)
@@ -200,15 +207,18 @@ struct  p2pool_list * new_p2pool_list(void)
 	return p2pl;
 }
 
+
 bool p2pool_list_push(struct p2pool_list * l, struct p2pool_stats_t *stats)
 {
 	struct p2p_list_ent *ent;
 	bool rc = true;
+	if (!stats)
+		return false;
 	
 	ent = (struct p2p_list_ent *)calloc(1, sizeof(*ent));
 	if (!ent)
 		return false;
-
+	
 	ent->stats = stats;
 	INIT_LIST_HEAD(&ent->p2p_list_node);
 	pthread_mutex_lock(&l->mutex);
@@ -228,6 +238,8 @@ void p2pool_list_free(struct p2pool_list *l)
 	list_for_each_entry_safe(ent, iter, &l->head, p2p_list_node, struct p2p_list_ent, struct p2p_list_ent)
 	{
 		list_del(&ent->p2p_list_node);
+		if (ent->stats)
+			free(ent->stats);
 		free(ent);
 	}
 	pthread_mutex_destroy(&l->mutex);
@@ -243,56 +255,69 @@ int get_p2pool_info_from_scanner(struct p2pool_list *l)
 	json_t * data = NULL;
 	bool at_least_one_pool_found = false;
 	char * scanner_url = strdup(SCANNER_URL);
-	char * network1_port = strdup(NETWORK1_PORT_STR);
+	uint32_t count=0;
 	
 	if (!scanner_url)
 		return -1;
 	
-	if (!network1_port)
-		return -1;
-
 	data = curl_get_response_and_digest(scanner_url, SCANNER_TIMEOUT);
+	if (!data)
+	{
+		free(scanner_url);
+		return -1;
+	}
+
 	size_t num_urls = json_array_size(data);
 
 	if (!num_urls)
+	{
+		json_decref(data);
 		return -1;
+	}
 	
 	for (uint32_t iter = 0; iter < num_urls; iter++)
 	{
 		json_t * p = json_array_get(data, iter);
 		if (!json_is_string(p))
-			continue;
-		struct p2pool_stats_t * stats = (struct p2pool_stats_t *) calloc(1, sizeof(*stats));
-		if (stats)
 		{
-			const char  *ip;
-			json_unpack(p, "s", &ip);
-			strcpy(stats->name, ip);
+			continue;
+		}
 
-			char * colon_str = strdup(COLON_STR);
-			char * stratum_tcp_str = strdup(STRATUM_TCP_STR);
-			char * network1_str = strdup(NETWORK1_PORT_STR);
-			char * network2_str = strdup(NETWORK1_PORT_STR);
+		struct p2pool_stats_t * stats = (struct p2pool_stats_t *) calloc(1, sizeof(*stats));
+		if (!stats)
+		{
+			json_decref(p);
+			json_decref(data);
+			return -1;
+		}
+		const char  *ip;
+		json_unpack(p, "s", &ip);
+		strcpy(stats->name, ip);
 
-			strcpy(stats->short_url, stats->name);
-			strcat(stats->short_url, colon_str);
-			strcat(stats->short_url, network1_str);
-			strcpy(stats->url, stratum_tcp_str);
-			strcat(stats->url, stats->short_url);
-			strcat(stats->port, network1_str);
+		char * colon_str = strdup(COLON_STR);
+		char * stratum_tcp_str = strdup(STRATUM_TCP_STR);
+		char * network1_str = strdup(NETWORK1_PORT_STR);
+		char * network2_str = strdup(NETWORK1_PORT_STR);
+
+		strcpy(stats->short_url, stats->name);
+		strcat(stats->short_url, colon_str);
+		strcat(stats->short_url, network1_str);
+		strcpy(stats->url, stratum_tcp_str);
+		strcat(stats->url, stats->short_url);
+		strcat(stats->port, network1_str);
 			
-			free(colon_str);
-			free(stratum_tcp_str);
-			free(network1_str);
-			free(network2_str);
-	
-			if (p2pool_list_push(l, stats))
-			{
-				at_least_one_pool_found = true;
-			}
+		free(colon_str);
+		free(stratum_tcp_str);
+		free(network1_str);
+		free(network2_str);
+		
+		if (p2pool_list_push(l, stats))
+		{
+			at_least_one_pool_found = true;
 		}
 	}
 
+	json_decref(data);
 	return (at_least_one_pool_found) ? 0:1;
 }
 

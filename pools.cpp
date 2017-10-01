@@ -221,6 +221,18 @@ bool pool_switch_snarf(int thr_id, int pooln)
 
 
 		// temporary... until stratum code cleanup
+		//if (stratum.xnonce1)
+		//	free(stratum.xnonce1);
+		//if (stratum.curl)
+		// 		curl_easy_cleanup(stratum.curl);
+		//if (stratum.curl_url)
+		//	free(stratum.curl_url);
+		//if (stratum.session_id)
+		//	free(stratum.session_id);
+		//if (stratum.sockbuf)
+		//	free(stratum.sockbuf);
+		//if (stratum.url)
+		//	free(stratum.url);
 		stratum = p->stratum;
 		stratum.pooln = cur_pooln;
 
@@ -298,6 +310,18 @@ bool pool_switch(int thr_id, int pooln)
 
 
 		// temporary... until stratum code cleanup
+		//if (stratum.xnonce1)
+	        //		free(stratum.xnonce1);
+		//if (stratum.curl)
+	 //		curl_easy_cleanup(stratum.curl);
+		//if (stratum.curl_url)
+		//	free(stratum.curl_url);
+		//if (stratum.session_id)
+		//	free(stratum.session_id);
+		//if (stratum.sockbuf)
+		//	free(stratum.sockbuf);
+		//if (stratum.url)
+		//	free(stratum.url);
 		stratum = p->stratum;
 		stratum.pooln = cur_pooln;
 
