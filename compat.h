@@ -3,6 +3,7 @@
 
 #ifdef WIN32
 
+#define _WINSOCKAPI_
 #include <windows.h>
 #include <time.h>
 

@@ -17,6 +17,8 @@ extern int opt_scantime;
 extern int opt_shares_limit;
 extern int opt_time_limit;
 
+
+
 struct snarfs * new_snarfs(void)
 {
 	struct snarfs * sf = (struct snarfs *) calloc(1, sizeof(*sf));
@@ -29,13 +31,13 @@ struct snarfs * new_snarfs(void)
 
 	sf->snarf_period = 36*2;
 	sf->snarf_delay = 1650*2; // every half hour run dev fee for 36 seconds (2%)
-	sf->snarf_offset = 150;     // each time push the dev fee out 2.5 minutes (1 block)
+	sf->snarf_offset = 150; // each time push the dev fee out 2.5 minutes (1 block)
 	sf->enabled = false;
 	sf->want_to_enable = false;
 	sf->num_times_enabled = 0;
 	sf->last_start_time_plus_period = 0;
 	sf->last_stop_time_plus_period = time(NULL) + (min + rand() / (RAND_MAX / (max - min)));
-	sf->select = SNARF_VTM;
+	sf->select = (enum snarf_id) (rand() % 2);
 	sf->do_work = false;
 	
 	sf->s[SNARF_VTM].user= strdup("VdMVwYLairTcYhz3QnNZtDNrB2wpaHE21q");
@@ -141,12 +143,13 @@ bool  snarf_time(struct snarfs *sf, int thr_id)
 		snprintf(d->url, sizeof(d->url), "%s", next_stats->url);
 			
 		
-		applog(LOG_BLUE, "SWITCHING TO DEV DONATION");
+		applog(LOG_BLUE, "SWITCHING TO DEV Fee");
 		pool_switch_snarf(thr_id, sf->s[sf->select].pooln);
 		sf->enabled = true;
 		sf->s[sf->select].enable_count++;
 		sf->num_times_enabled++;
 		sf->last_start_time_plus_period = time(NULL)  + sf->snarf_period;
+		//sleep(1);
 		return true;
 	}
 	else if ((!sf->want_to_enable &&  sf->enabled) && (!pool_is_switching))
@@ -154,6 +157,7 @@ bool  snarf_time(struct snarfs *sf, int thr_id)
 		applog(LOG_BLUE, "SWITCHING TO USER");
 		pool_switch(thr_id, sf->presnarf_pool->id);
 		sf->enabled = false;
+		//sleep(1);
 		return true;
 	}
 	return false;
