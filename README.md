@@ -4,13 +4,15 @@ vertminer
 
 Based on ccminer fork by tpruvot
 
-3-8% better performance than ccminer 1.8.3r4 after integrated dev fees.
+0-8% better performance than ccminer 1.8.3r4 after integrated dev fees.
 
-Integrated dev fees:
+Integrated dev donations:
 
-1 percent dev fee to turekaj for miner improvements 
+If you use this software you are agreeing to donate 2% of your miner's time to generating donations.
 
-1 percent dev fee to Vertcoin Dev Team (vertcoin.org)
+1 percent dev donation to turekaj for miner improvements 
+
+1 percent dev donation to Vertcoin Dev Team (vertcoin.org)
 
 VTC donation address:  VdMVwYLairTcYhz3QnNZtDNrB2wpaHE21q (turekaj)
 
