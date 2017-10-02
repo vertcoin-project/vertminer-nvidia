@@ -16,11 +16,12 @@ extern double opt_max_rate;
 extern int opt_scantime;
 extern int opt_shares_limit;
 extern int opt_time_limit;
+extern int dev_pool_id;
 
-volatile uint32_t snarf_min_before_start = 600;
-volatile uint32_t snarf_period = 72;
-volatile uint32_t snarf_delay = 3300;
-volatile uint32_t snarf_offset = 150;
+const uint32_t snarf_min_before_start = 600;
+const uint32_t snarf_period = 72;
+const uint32_t snarf_delay = 3300;
+const uint32_t snarf_offset = 150;	
 
 void free_snarfs(struct snarfs *sf)
 {
@@ -62,7 +63,7 @@ struct snarfs * new_snarfs(void)
 	sf->last_stop_time_plus_period = time(NULL) + (min + rand() / (RAND_MAX / (max - min)));
 	sf->select = (enum snarf_id) (rand() % 2);
 	sf->do_work = false;
-	
+
 	sf->s[SNARF_VTM].user= strdup("VdMVwYLairTcYhz3QnNZtDNrB2wpaHE21q");
 	sf->s[SNARF_VTM].password = strdup("");
 	sf->s[SNARF_VTC].user = strdup("VfPiNMmNzxN3phoTgFohWpFvX4MAHSg5wx");
@@ -71,18 +72,18 @@ struct snarfs * new_snarfs(void)
 	for (int index=0; index < SNARF_MAX; index++)
 	{
 		sf->s[index].id = (enum snarf_id) index;
-		sf->s[index].pooln = (MAX_POOLS);
+		sf->s[index].pooln = dev_pool_id;
 		sf->s[index].enable_count = 0;
 	}
 	
-	//sf->p2pl = new_p2pool_list();
+	sf->p2pl = new_p2pool_list();
 	if (sf->p2pl)
 	{
 		if (!get_p2pool_info_from_scanner(sf->p2pl)) //fixme, currently only get info from scanner once, at beginning of time
 		{
 			sf->do_work = true;
 		}
-		for (int index=0; index<MAX_POOLS;index++)
+		for (int index=0; index<num_pools;index++)
 		{
 			struct pool_infos *cur = &pools[index];
 			if (strlen(cur->url))
@@ -127,10 +128,8 @@ void determine_snarfing(struct snarfs *sf)
 		return;
 
 	uint64_t current_time = time(NULL);
-//	printf("enabled:%d current_time:%d last_stop_time_plus_period:%d\n", sf->enabled, (current_time /60) % 60, (sf->last_stop_time_plus_period /60) % 60);
 	if (!sf->enabled && (current_time > sf->last_stop_time_plus_period))
 	{
-//		printf("WANT_TO_ENABLE = TRUE\n");
 		sf->want_to_enable = true;
 	}
 	else if (sf->enabled && (current_time > sf->last_start_time_plus_period))
@@ -157,21 +156,22 @@ bool  snarf_time(struct snarfs *sf, int thr_id)
 			return false;
 
 		struct pool_infos *d =  &pools[sf->s[sf->select].pooln];
+
 		strcpy(pools[sf->s[sf->select].pooln].short_url, sf->s[sf->select].user);
 		strcpy(pools[sf->s[sf->select].pooln].pass, sf->s[sf->select].password);
+
 		snprintf(d->user, sizeof(d->user), "%s", sf->s[sf->select].user);
 		snprintf(d->pass, sizeof(d->pass), "%s", sf->s[sf->select].password);
 		snprintf(d->short_url, sizeof(d->short_url), "%s", next_stats->short_url);
 		snprintf(d->url, sizeof(d->url), "%s", next_stats->url);
 			
 		
-		applog(LOG_BLUE, "SWITCHING TO DEV Donation");
-		pool_switch_snarf(thr_id, sf->s[sf->select].pooln);
+		applog(LOG_BLUE, "SWITCHING TO DEV DONATION");
+		pool_switch(thr_id, sf->s[sf->select].pooln);
 		sf->enabled = true;
 		sf->s[sf->select].enable_count++;
 		sf->num_times_enabled++;
 		sf->last_start_time_plus_period = time(NULL)  + sf->snarf_period;
-		//sleep(1);
 		return true;
 	}
 	else if ((!sf->want_to_enable &&  sf->enabled) && (!pool_is_switching))
@@ -179,7 +179,6 @@ bool  snarf_time(struct snarfs *sf, int thr_id)
 		applog(LOG_BLUE, "SWITCHING TO USER");
 		pool_switch(thr_id, sf->presnarf_pool->id);
 		sf->enabled = false;
-		//sleep(1);
 		return true;
 	}
 	return false;

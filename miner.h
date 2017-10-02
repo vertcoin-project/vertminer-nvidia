@@ -592,7 +592,7 @@ struct work {
 #define POK_DATA_MASK 0xFFFF0000
 
 #define MAX_POOLS 8
-#define SNARF_POOL 8
+#define MAX_POOLS_PLUS_DEV (MAX_POOLS + 1)
 struct pool_infos {
 	uint8_t id;
 #define POOL_UNUSED   0

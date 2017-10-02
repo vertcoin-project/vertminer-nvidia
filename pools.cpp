@@ -38,6 +38,7 @@ extern volatile bool pool_is_switching;
 extern uint8_t conditional_state[MAX_GPUS];
 
 extern double thr_hashrates[MAX_GPUS];
+extern int dev_pool_id;
 
 extern struct option options[];
 
@@ -147,93 +148,6 @@ void pool_set_attr(struct pool_infos *p, const char* key, char* arg)
 		return;
 	}
 }
-bool pool_switch_snarf(int thr_id, int pooln)
-{
-	int prevn = cur_pooln;
-	bool algo_switch = false;
-	struct pool_infos *prev = &pools[cur_pooln];
-	struct pool_infos* p = NULL;
-
-	// save prev stratum connection infos (struct)
-	if (prev->type & POOL_STRATUM) {
-		// may not be the right moment to free,
-		// to check if required on submit...
-		stratum_free_job(&stratum);
-		prev->stratum = stratum;
-	}
-
-	if (pooln == SNARF_POOL) {
-		cur_pooln = pooln;
-		p = &pools[cur_pooln];
-	} else {
-		applog(LOG_ERR, "Switch to inexistant pool %d!", pooln);
-		return false;
-	}
-
-	// save global attributes
-	prev->check_dups = check_dups;
-
-	pthread_mutex_lock(&stratum_work_lock);
-
-	free(rpc_user); rpc_user = strdup(p->user);
-	free(rpc_pass); rpc_pass = strdup(p->pass);
-	free(rpc_url);  rpc_url = strdup(p->url);
-
-	short_url = p->short_url; // just a pointer, no alloc
-
-	opt_scantime = p->scantime;
-	opt_max_diff = p->max_diff;
-	opt_max_rate = p->max_rate;
-	opt_shares_limit = p->shares_limit;
-	opt_time_limit = p->time_limit;
-
-	// yiimp stats reporting
-	opt_stratum_stats = (strstr(p->pass, "stats") != NULL) || (strcmp(p->user, "benchmark") == 0);
-
-	pthread_mutex_unlock(&stratum_work_lock);
-
-	if (prevn != cur_pooln) {
-
-		pool_switch_count++;
-		net_diff = 0;
-		g_work_time = 0;
-		g_work.data[0] = 0;
-		pool_is_switching = true;
-		stratum_need_reset = true;
-		// used to get the pool uptime
-		firstwork_time = time(NULL);
-		restart_threads();
-		// reset wait states
-		for (int n=0; n<opt_n_threads; n++)
-			conditional_state[n] = false;
-
-		// restore flags
-		check_dups = p->check_dups;
-
-
-		// temporary... until stratum code cleanup
-		//if (stratum.xnonce1)
-		//	free(stratum.xnonce1);
-		//if (stratum.curl)
-		// 		curl_easy_cleanup(stratum.curl);
-		//if (stratum.curl_url)
-		//	free(stratum.curl_url);
-		//if (stratum.session_id)
-		//	free(stratum.session_id);
-		//if (stratum.sockbuf)
-		//	free(stratum.sockbuf);
-		//if (stratum.url)
-		//	free(stratum.url);
-		stratum = p->stratum;
-		stratum.pooln = cur_pooln;
-
-		// unlock the stratum thread
-		tq_push(thr_info[stratum_thr_id].q, strdup(rpc_url));
-		applog(LOG_BLUE, "Switch to stratum pool %d: %s", cur_pooln,
-			strlen(p->name) ? p->name : p->short_url);
-	}
-	return true;
-}
 
 // pool switching code
 bool pool_switch(int thr_id, int pooln)
@@ -243,15 +157,10 @@ bool pool_switch(int thr_id, int pooln)
 	struct pool_infos *prev = &pools[cur_pooln];
 	struct pool_infos* p = NULL;
 
-	// save prev stratum connection infos (struct)
-	if (prev->type & POOL_STRATUM) {
-		// may not be the right moment to free,
-		// to check if required on submit...
-		stratum_free_job(&stratum);
-		prev->stratum = stratum;
-	}
+	stratum_free_job(&stratum);
+	prev->stratum = stratum;
 
-	if (pooln < num_pools) {
+	if (pooln < (num_pools+1)) {
 		cur_pooln = pooln;
 		p = &pools[cur_pooln];
 	} else {
@@ -301,18 +210,6 @@ bool pool_switch(int thr_id, int pooln)
 
 
 		// temporary... until stratum code cleanup
-		//if (stratum.xnonce1)
-	        //		free(stratum.xnonce1);
-		//if (stratum.curl)
-	 //		curl_easy_cleanup(stratum.curl);
-		//if (stratum.curl_url)
-		//	free(stratum.curl_url);
-		//if (stratum.session_id)
-		//	free(stratum.session_id);
-		//if (stratum.sockbuf)
-		//	free(stratum.sockbuf);
-		//if (stratum.url)
-		//	free(stratum.url);
 		stratum = p->stratum;
 		stratum.pooln = cur_pooln;
 

@@ -142,8 +142,9 @@ int opt_nfactor = 0;
 bool opt_autotune = true;
 
 // pools (failover/getwork infos)
-struct pool_infos pools[MAX_POOLS+1] = { 0 };
+struct pool_infos pools[MAX_POOLS_PLUS_DEV] = { 0 };
 int num_pools = 1;
+int dev_pool_id = 0;
 volatile int cur_pooln = 0;
 bool opt_pool_failover = true;
 volatile bool pool_on_hold = false;
@@ -2545,7 +2546,8 @@ int main(int argc, char *argv[])
 	memset(&stratum.url, 0, sizeof(stratum));
 
 	// ensure default params are set
-	pool_init_defaults(&pools[0], num_pools+2);
+	dev_pool_id = num_pools;
+	pool_init_defaults(&pools[0], num_pools+1);
 
 	if (opt_debug)
 		pool_dump_infos(&pools[0]);
