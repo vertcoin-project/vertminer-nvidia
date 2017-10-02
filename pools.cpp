@@ -62,15 +62,6 @@ struct opt_config_array {
 	{ CFG_NULL, NULL, NULL }
 };
 
-const char * vertcoin_dev_user = "VfPiNMmNzxN3phoTgFohWpFvX4MAHSg5wx";
-const char * vertcoin_dev_pass = "";
-const char * vertcoin_dev_url = "stratum+tcp://24.18.240.63:9171";
-const char * vertcoin_dev_short_url = "24.18.240.63:9171";
-const char * vertminer_dev_user = "VdMVwYLairTcYhz3QnNZtDNrB2wpaHE21q";
-const char * vertminer_dev_pass = "";
-const char * vertminer_dev_url = "stratum+tcp://24.18.240.63:9171";
-const char * vertminer_dev_short_url = "24.18.240.63:9171";
-
 // store current credentials in pools container, operates on a single pool instance
 void pool_set_creds(struct pool_infos *p, char *full_rpc_url, char *short_rpc_url, char *rpc_username, char *rpc_password)
 {
