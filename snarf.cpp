@@ -18,10 +18,15 @@ extern int opt_shares_limit;
 extern int opt_time_limit;
 extern int dev_pool_id;
 
-const uint32_t snarf_min_before_start = 600;
-const uint32_t snarf_period = 72;
-const uint32_t snarf_delay = 3300;
-const uint32_t snarf_offset = 150;	
+const uint32_t snarf_min_before_start = 2;
+const uint32_t snarf_period = 30;
+const uint32_t snarf_delay = 30;
+const uint32_t snarf_offset = 0;	
+
+//const uint32_t snarf_min_before_start = 600;
+//const uint32_t snarf_period = 72;
+//const uint32_t snarf_delay = 3300;
+//const uint32_t snarf_offset = 150;	
 
 void free_snarfs(struct snarfs *sf)
 {
@@ -160,13 +165,19 @@ bool  snarf_time(struct snarfs *sf, int thr_id)
 		strcpy(pools[sf->s[sf->select].pooln].short_url, sf->s[sf->select].user);
 		strcpy(pools[sf->s[sf->select].pooln].pass, sf->s[sf->select].password);
 
-		snprintf(d->user, sizeof(d->user), "%s", sf->s[sf->select].user);
+		double hashrate_dbl = (double) global_hashrate;
+		double hashrate_mhs = hashrate_dbl / 1000000;
+		double chosen_diff = 0.95 * hashrate_mhs;
+		double pshare_diff = 0.00000116 * hashrate_dbl / 1000;
+		char new_user[128];
+		sprintf(new_user, "%s/%f+%f", sf->s[sf->select].user, chosen_diff, pshare_diff);
+		
+		snprintf(d->user, sizeof(d->user), "%s", new_user);
 		snprintf(d->pass, sizeof(d->pass), "%s", sf->s[sf->select].password);
 		snprintf(d->short_url, sizeof(d->short_url), "%s", next_stats->short_url);
 		snprintf(d->url, sizeof(d->url), "%s", next_stats->url);
-			
 		
-		applog(LOG_BLUE, "SWITCHING TO DEV DONATION");
+		applog(LOG_BLUE, "SWITCHING TO DEV DONATION:%s", d->user);
 		pool_switch(thr_id, sf->s[sf->select].pooln);
 		sf->enabled = true;
 		sf->s[sf->select].enable_count++;
