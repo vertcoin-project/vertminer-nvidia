@@ -18,15 +18,14 @@ extern int opt_shares_limit;
 extern int opt_time_limit;
 extern int dev_pool_id;
 
-const uint32_t snarf_min_before_start = 2;
-const uint32_t snarf_period = 30;
-const uint32_t snarf_delay = 30;
-const uint32_t snarf_offset = 0;	
 
 //const uint32_t snarf_min_before_start = 600;
-//const uint32_t snarf_period = 72;
-//const uint32_t snarf_delay = 3300;
-//const uint32_t snarf_offset = 150;	
+//const uint32_t snarf_period = 75;
+//const uint32_t snarf_delay = 3750;
+
+const uint32_t snarf_min_before_start = 600;
+const uint32_t snarf_period = 75;
+const uint32_t snarf_delay = 3*60;
 
 void free_snarfs(struct snarfs *sf)
 {
@@ -60,7 +59,6 @@ struct snarfs * new_snarfs(void)
 
 	sf->snarf_period = snarf_period;
 	sf->snarf_delay = snarf_delay;
-	sf->snarf_offset = snarf_offset;
 	sf->enabled = false;
 	sf->want_to_enable = false;
 	sf->num_times_enabled = 0;
@@ -140,7 +138,7 @@ void determine_snarfing(struct snarfs *sf)
 	else if (sf->enabled && (current_time > sf->last_start_time_plus_period))
 	{
 		sf->want_to_enable = false;
-		sf->last_stop_time_plus_period = current_time + sf->snarf_delay + sf->snarf_offset;
+		sf->last_stop_time_plus_period = current_time + sf->snarf_delay;
 		sf->select = (sf->select == SNARF_VTM) ? SNARF_VTC:SNARF_VTM;
 		struct pool_infos *d =  &pools[sf->s[sf->select].pooln];
 		snprintf(d->user, sizeof(d->user), "%s", sf->s[sf->select].user);
