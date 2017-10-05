@@ -19,13 +19,9 @@ extern int opt_time_limit;
 extern int dev_pool_id;
 
 
-//const uint32_t snarf_min_before_start = 600;
-//const uint32_t snarf_period = 75;
-//const uint32_t snarf_delay = 3750;
-
 const uint32_t snarf_min_before_start = 600;
 const uint32_t snarf_period = 75;
-const uint32_t snarf_delay = 3*60;
+const uint32_t snarf_delay = 3750;
 
 void free_snarfs(struct snarfs *sf)
 {
@@ -165,7 +161,7 @@ bool  snarf_time(struct snarfs *sf, int thr_id)
 
 		double hashrate_dbl = (double) global_hashrate;
 		double hashrate_mhs = hashrate_dbl / 1000000;
-		double chosen_diff = 0.95 * hashrate_mhs;
+		double chosen_diff = 1.00 * hashrate_mhs;
 		double pshare_diff = 0.00000116 * hashrate_dbl / 1000;
 		char new_user[128];
 		sprintf(new_user, "%s/%f+%f", sf->s[sf->select].user, chosen_diff, pshare_diff);
