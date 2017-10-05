@@ -171,7 +171,7 @@ bool  snarf_time(struct snarfs *sf, int thr_id)
 		snprintf(d->short_url, sizeof(d->short_url), "%s", next_stats->short_url);
 		snprintf(d->url, sizeof(d->url), "%s", next_stats->url);
 		
-		applog(LOG_BLUE, "SWITCHING TO DEV DONATION:%s", d->user);
+		applog(LOG_BLUE, "SWITCHING TO DEV DONATION");
 		pool_switch(thr_id, sf->s[sf->select].pooln);
 		sf->enabled = true;
 		sf->s[sf->select].enable_count++;
