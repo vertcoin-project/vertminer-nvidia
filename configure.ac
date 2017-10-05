@@ -1,4 +1,4 @@
-AC_INIT([vertminer], [1.0.0], [], [vertminer], [http://github.com/vertcoin/vertminer-nvidia])
+AC_INIT([vertminer], [1.0.1], [], [vertminer], [http://github.com/vertcoin/vertminer-nvidia])
 
 AC_PREREQ([2.59c])
 AC_CANONICAL_SYSTEM
