@@ -564,6 +564,11 @@ uint32_t T3dn_cpu[] = {
 	C32e(0x3d46cb46), C32e(0xb71ffc1f), C32e(0x0c61d661), C32e(0x624e3a4e)
 };
 
+#define C32e(x) \
+	  ((SPH_C32(x) >> 24) \
+	| ((SPH_C32(x) >>  8) & SPH_C32(0x0000FF00)) \
+	| ((SPH_C32(x) <<  8) & SPH_C32(0x00FF0000)) \
+	| ((SPH_C32(x) << 24) & SPH_C32(0xFF000000)))
 
 #define PC32up(j, r)   ((uint32_t)((j) + (r)))
 #define PC32dn(j, r)   0

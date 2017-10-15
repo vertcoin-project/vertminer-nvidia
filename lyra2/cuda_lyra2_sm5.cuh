@@ -33,7 +33,7 @@ __device__ __forceinline__ void ST4S(const int index, const uint2 data)
 	shared_mem[(index * blockDim.y + threadIdx.y) * blockDim.x + threadIdx.x] = data;
 }
 
-#if __CUDA_ARCH__ >= 300
+#if __CUDA_ARCH__ == 300
 __device__ __forceinline__ uint32_t WarpShuffle(uint32_t a, uint32_t b, uint32_t c)
 {
 	return __shfl(a, b, c);
@@ -121,14 +121,16 @@ __device__ __forceinline__ void WarpShuffle3(uint2 &a1, uint2 &a2, uint2 &a3, ui
 
 #endif
 
+#if __CUDA_ARCH__ >= 300
 static __device__ __forceinline__
 void Gfunc(uint2 &a, uint2 &b, uint2 &c, uint2 &d)
 {
 	a += b; d ^= a; d = SWAPUINT2(d);
-	c += d; b ^= c; b = ROR2(b, 24);
-	a += b; d ^= a; d = ROR2(d, 16);
+	c += d; b ^= c; b = ROR24(b); //ROR2(b, 24);
+	a += b; d ^= a; d = ROR16(d);
 	c += d; b ^= c; b = ROR2(b, 63);
 }
+#endif
 
 __device__ __forceinline__ void round_lyra(uint2 s[4])
 {
@@ -168,7 +170,7 @@ void reduceDuplexV5(uint2 state[4], const uint32_t thread, const uint32_t thread
 	for (int i = 0; i < 8; i++)
 	{
 		const uint32_t s0 = memshift * Ncol * 0 + (Ncol - 1 - i) * memshift;
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			ST4S(s0 + j, state[j]);
 		round_lyra(state);
@@ -178,43 +180,43 @@ void reduceDuplexV5(uint2 state[4], const uint32_t thread, const uint32_t thread
 	{
 		const uint32_t s0 = memshift * Ncol * 0 + i * memshift;
 		const uint32_t s1 = ps1 + (7 - i)*memshift* threads*blockDim.x;
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state1[j] = LD4S(s0 + j);
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state[j] ^= state1[j];
 
 		round_lyra(state);
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			*(DMatrix + s1 + j*threads*blockDim.x) = state1[j] ^ state[j];
 	}
 
-	// 1, 0, 2 
+	// 1, 0, 2
 	for (int i = 0; i < 8; i++)
 	{
 		const uint32_t s0 = memshift * Ncol * 0 + i * memshift;
 		const uint32_t s1 = ps1 + i * memshift* threads*blockDim.x;
 		const uint32_t s2 = ps2 + (7 - i)*memshift* threads*blockDim.x;
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state1[j] = *(DMatrix + s1 + j*threads*blockDim.x);
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state2[j] = LD4S(s0 + j);
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state[j] ^= state1[j] + state2[j];
 
 		round_lyra(state);
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			*(DMatrix + s2 + j*threads*blockDim.x) = state1[j] ^ state[j];
 
-		//ˆêŒÂŽè‘O‚ÌƒXƒŒƒbƒh‚©‚çƒf[ƒ^‚ð–á‚¤(“¯Žž‚ÉˆêŒÂæ‚ÌƒXƒŒƒbƒh‚Éƒf[ƒ^‚ð‘—‚é)
+		//ä¸€å€‹æ‰‹å‰ã®ã‚¹ãƒ¬ãƒƒãƒ‰ã‹ã‚‰ãƒ‡ãƒ¼ã‚¿ã‚’è²°ã†(åŒæ™‚ã«ä¸€å€‹å…ˆã®ã‚¹ãƒ¬ãƒƒãƒ‰ã«ãƒ‡ãƒ¼ã‚¿ã‚’é€ã‚‹)
 		uint2 Data0 = state[0];
 		uint2 Data1 = state[1];
 		uint2 Data2 = state[2];
@@ -233,34 +235,34 @@ void reduceDuplexV5(uint2 state[4], const uint32_t thread, const uint32_t thread
 			state2[2] ^= Data2;
 		}
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			ST4S(s0 + j, state2[j]);
 	}
 
-	// 2, 1, 3 
+	// 2, 1, 3
 	for (int i = 0; i < 8; i++)
 	{
 		const uint32_t s1 = ps1 + i * memshift* threads*blockDim.x;
 		const uint32_t s2 = ps2 + i * memshift* threads*blockDim.x;
 		const uint32_t s3 = ps3 + (7 - i)*memshift* threads*blockDim.x;
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state1[j] = *(DMatrix + s2 + j*threads*blockDim.x);
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state2[j] = *(DMatrix + s1 + j*threads*blockDim.x);
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state[j] ^= state1[j] + state2[j];
 
 		round_lyra(state);
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			*(DMatrix + s3 + j*threads*blockDim.x) = state1[j] ^ state[j];
 
-		//ˆêŒÂŽè‘O‚ÌƒXƒŒƒbƒh‚©‚çƒf[ƒ^‚ð–á‚¤(“¯Žž‚ÉˆêŒÂæ‚ÌƒXƒŒƒbƒh‚Éƒf[ƒ^‚ð‘—‚é)
+		//ä¸€å€‹æ‰‹å‰ã®ã‚¹ãƒ¬ãƒƒãƒ‰ã‹ã‚‰ãƒ‡ãƒ¼ã‚¿ã‚’è²°ã†(åŒæ™‚ã«ä¸€å€‹å…ˆã®ã‚¹ãƒ¬ãƒƒãƒ‰ã«ãƒ‡ãƒ¼ã‚¿ã‚’é€ã‚‹)
 		uint2 Data0 = state[0];
 		uint2 Data1 = state[1];
 		uint2 Data2 = state[2];
@@ -271,43 +273,41 @@ void reduceDuplexV5(uint2 state[4], const uint32_t thread, const uint32_t thread
 			state2[0] ^= Data2;
 			state2[1] ^= Data0;
 			state2[2] ^= Data1;
-		}
-		else
-		{
+		} else  {
 			state2[0] ^= Data0;
 			state2[1] ^= Data1;
 			state2[2] ^= Data2;
 		}
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			*(DMatrix + s1 + j*threads*blockDim.x) = state2[j];
 	}
 
-	// 3, 0, 4 
+	// 3, 0, 4
 	for (int i = 0; i < 8; i++)
 	{
 		const uint32_t ls0 = memshift * Ncol * 0 + i * memshift;
 		const uint32_t s0 = ps0 + i * memshift* threads*blockDim.x;
 		const uint32_t s3 = ps3 + i * memshift* threads*blockDim.x;
 		const uint32_t s4 = ps4 + (7 - i)*memshift* threads*blockDim.x;
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state1[j] = *(DMatrix + s3 + j*threads*blockDim.x);
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state2[j] = LD4S(ls0 + j);
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state[j] ^= state1[j] + state2[j];
 
 		round_lyra(state);
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			*(DMatrix + s4 + j*threads*blockDim.x) = state1[j] ^ state[j];
 
-		//ˆêŒÂŽè‘O‚ÌƒXƒŒƒbƒh‚©‚çƒf[ƒ^‚ð–á‚¤(“¯Žž‚ÉˆêŒÂæ‚ÌƒXƒŒƒbƒh‚Éƒf[ƒ^‚ð‘—‚é)
+		//ä¸€å€‹æ‰‹å‰ã®ã‚¹ãƒ¬ãƒƒãƒ‰ã‹ã‚‰ãƒ‡ãƒ¼ã‚¿ã‚’è²°ã†(åŒæ™‚ã«ä¸€å€‹å…ˆã®ã‚¹ãƒ¬ãƒƒãƒ‰ã«ãƒ‡ãƒ¼ã‚¿ã‚’é€ã‚‹)
 		uint2 Data0 = state[0];
 		uint2 Data1 = state[1];
 		uint2 Data2 = state[2];
@@ -318,42 +318,40 @@ void reduceDuplexV5(uint2 state[4], const uint32_t thread, const uint32_t thread
 			state2[0] ^= Data2;
 			state2[1] ^= Data0;
 			state2[2] ^= Data1;
-		}
-		else
-		{
+		} else {
 			state2[0] ^= Data0;
 			state2[1] ^= Data1;
 			state2[2] ^= Data2;
 		}
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			*(DMatrix + s0 + j*threads*blockDim.x) = state2[j];
 	}
 
-	// 4, 3, 5 
+	// 4, 3, 5
 	for (int i = 0; i < 8; i++)
 	{
 		const uint32_t s3 = ps3 + i * memshift* threads*blockDim.x;
 		const uint32_t s4 = ps4 + i * memshift* threads*blockDim.x;
 		const uint32_t s5 = ps5 + (7 - i)*memshift* threads*blockDim.x;
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state1[j] = *(DMatrix + s4 + j*threads*blockDim.x);
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state2[j] = *(DMatrix + s3 + j*threads*blockDim.x);
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state[j] ^= state1[j] + state2[j];
 
 		round_lyra(state);
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			*(DMatrix + s5 + j*threads*blockDim.x) = state1[j] ^ state[j];
 
-		//ˆêŒÂŽè‘O‚ÌƒXƒŒƒbƒh‚©‚çƒf[ƒ^‚ð–á‚¤(“¯Žž‚ÉˆêŒÂæ‚ÌƒXƒŒƒbƒh‚Éƒf[ƒ^‚ð‘—‚é)
+		//ä¸€å€‹æ‰‹å‰ã®ã‚¹ãƒ¬ãƒƒãƒ‰ã‹ã‚‰ãƒ‡ãƒ¼ã‚¿ã‚’è²°ã†(åŒæ™‚ã«ä¸€å€‹å…ˆã®ã‚¹ãƒ¬ãƒƒãƒ‰ã«ãƒ‡ãƒ¼ã‚¿ã‚’é€ã‚‹)
 		uint2 Data0 = state[0];
 		uint2 Data1 = state[1];
 		uint2 Data2 = state[2];
@@ -372,34 +370,34 @@ void reduceDuplexV5(uint2 state[4], const uint32_t thread, const uint32_t thread
 			state2[2] ^= Data2;
 		}
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			*(DMatrix + s3 + j*threads*blockDim.x) = state2[j];
 	}
 
-	// 5, 2, 6 
+	// 5, 2, 6
 	for (int i = 0; i < 8; i++)
 	{
 		const uint32_t s2 = ps2 + i * memshift* threads*blockDim.x;
 		const uint32_t s5 = ps5 + i * memshift* threads*blockDim.x;
 		const uint32_t s6 = ps6 + (7 - i)*memshift* threads*blockDim.x;
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state1[j] = *(DMatrix + s5 + j*threads*blockDim.x);
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state2[j] = *(DMatrix + s2 + j*threads*blockDim.x);
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state[j] ^= state1[j] + state2[j];
 
 		round_lyra(state);
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			*(DMatrix + s6 + j*threads*blockDim.x) = state1[j] ^ state[j];
 
-		//ˆêŒÂŽè‘O‚ÌƒXƒŒƒbƒh‚©‚çƒf[ƒ^‚ð–á‚¤(“¯Žž‚ÉˆêŒÂæ‚ÌƒXƒŒƒbƒh‚Éƒf[ƒ^‚ð‘—‚é)
+		//ä¸€å€‹æ‰‹å‰ã®ã‚¹ãƒ¬ãƒƒãƒ‰ã‹ã‚‰ãƒ‡ãƒ¼ã‚¿ã‚’è²°ã†(åŒæ™‚ã«ä¸€å€‹å…ˆã®ã‚¹ãƒ¬ãƒƒãƒ‰ã«ãƒ‡ãƒ¼ã‚¿ã‚’é€ã‚‹)
 		uint2 Data0 = state[0];
 		uint2 Data1 = state[1];
 		uint2 Data2 = state[2];
@@ -418,7 +416,7 @@ void reduceDuplexV5(uint2 state[4], const uint32_t thread, const uint32_t thread
 			state2[2] ^= Data2;
 		}
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			*(DMatrix + s2 + j*threads*blockDim.x) = state2[j];
 	}
@@ -429,23 +427,23 @@ void reduceDuplexV5(uint2 state[4], const uint32_t thread, const uint32_t thread
 		const uint32_t s1 = ps1 + i * memshift* threads*blockDim.x;
 		const uint32_t s6 = ps6 + i * memshift* threads*blockDim.x;
 		const uint32_t s7 = ps7 + (7 - i)*memshift* threads*blockDim.x;
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state1[j] = *(DMatrix + s6 + j*threads*blockDim.x);
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state2[j] = *(DMatrix + s1 + j*threads*blockDim.x);
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state[j] ^= state1[j] + state2[j];
 
 		round_lyra(state);
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			*(DMatrix + s7 + j*threads*blockDim.x) = state1[j] ^ state[j];
 
-		//ˆêŒÂŽè‘O‚ÌƒXƒŒƒbƒh‚©‚çƒf[ƒ^‚ð–á‚¤(“¯Žž‚ÉˆêŒÂæ‚ÌƒXƒŒƒbƒh‚Éƒf[ƒ^‚ð‘—‚é)
+		//ä¸€å€‹æ‰‹å‰ã®ã‚¹ãƒ¬ãƒƒãƒ‰ã‹ã‚‰ãƒ‡ãƒ¼ã‚¿ã‚’è²°ã†(åŒæ™‚ã«ä¸€å€‹å…ˆã®ã‚¹ãƒ¬ãƒƒãƒ‰ã«ãƒ‡ãƒ¼ã‚¿ã‚’é€ã‚‹)
 		uint2 Data0 = state[0];
 		uint2 Data1 = state[1];
 		uint2 Data2 = state[2];
@@ -456,15 +454,13 @@ void reduceDuplexV5(uint2 state[4], const uint32_t thread, const uint32_t thread
 			state2[0] ^= Data2;
 			state2[1] ^= Data0;
 			state2[2] ^= Data1;
-		}
-		else
-		{
+		} else {
 			state2[0] ^= Data0;
 			state2[1] ^= Data1;
 			state2[2] ^= Data2;
 		}
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			*(DMatrix + s1 + j*threads*blockDim.x) = state2[j];
 	}
@@ -477,7 +473,7 @@ void reduceDuplexRowV50(const int rowIn, const int rowInOut, const int rowOut, u
 	const uint32_t ps2 = (memshift * Ncol * rowInOut *threads + thread)*blockDim.x + threadIdx.x;
 	const uint32_t ps3 = (memshift * Ncol * rowOut*threads + thread)*blockDim.x + threadIdx.x;
 
-#pragma unroll 1
+	#pragma unroll 1
 	for (int i = 0; i < 8; i++)
 	{
 		uint2 state1[3], state2[3];
@@ -486,13 +482,13 @@ void reduceDuplexRowV50(const int rowIn, const int rowInOut, const int rowOut, u
 		const uint32_t s2 = ps2 + i*memshift*threads *blockDim.x;
 		const uint32_t s3 = ps3 + i*memshift*threads *blockDim.x;
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++) {
 			state1[j] = *(DMatrix + s1 + j*threads*blockDim.x);
 			state2[j] = *(DMatrix + s2 + j*threads*blockDim.x);
 		}
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++) {
 			state1[j] += state2[j];
 			state[j] ^= state1[j];
@@ -500,7 +496,7 @@ void reduceDuplexRowV50(const int rowIn, const int rowInOut, const int rowOut, u
 
 		round_lyra(state);
 
-		//ˆêŒÂŽè‘O‚ÌƒXƒŒƒbƒh‚©‚çƒf[ƒ^‚ð–á‚¤(“¯Žž‚ÉˆêŒÂæ‚ÌƒXƒŒƒbƒh‚Éƒf[ƒ^‚ð‘—‚é)
+		//ä¸€å€‹æ‰‹å‰ã®ã‚¹ãƒ¬ãƒƒãƒ‰ã‹ã‚‰ãƒ‡ãƒ¼ã‚¿ã‚’è²°ã†(åŒæ™‚ã«ä¸€å€‹å…ˆã®ã‚¹ãƒ¬ãƒƒãƒ‰ã«ãƒ‡ãƒ¼ã‚¿ã‚’é€ã‚‹)
 		uint2 Data0 = state[0];
 		uint2 Data1 = state[1];
 		uint2 Data2 = state[2];
@@ -511,15 +507,13 @@ void reduceDuplexRowV50(const int rowIn, const int rowInOut, const int rowOut, u
 			state2[0] ^= Data2;
 			state2[1] ^= Data0;
 			state2[2] ^= Data1;
-		}
-		else
-		{
+		} else {
 			state2[0] ^= Data0;
 			state2[1] ^= Data1;
 			state2[2] ^= Data2;
 		}
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 		{
 			*(DMatrix + s2 + j*threads*blockDim.x) = state2[j];
@@ -533,17 +527,17 @@ void reduceDuplexRowV50_8(const int rowInOut, uint2 state[4], const uint32_t thr
 {
 	const uint32_t ps1 = (memshift * Ncol * 2*threads + thread)*blockDim.x + threadIdx.x;
 	const uint32_t ps2 = (memshift * Ncol * rowInOut *threads + thread)*blockDim.x + threadIdx.x;
-	const uint32_t ps3 = (memshift * Ncol * 5*threads + thread)*blockDim.x + threadIdx.x;
+	// const uint32_t ps3 = (memshift * Ncol * 5*threads + thread)*blockDim.x + threadIdx.x;
 
 	uint2 state1[3], last[3];
 
-#pragma unroll
+	#pragma unroll
 	for (int j = 0; j < 3; j++) {
 		state1[j] = *(DMatrix + ps1 + j*threads*blockDim.x);
 		last[j] = *(DMatrix + ps2 + j*threads*blockDim.x);
 	}
 
-#pragma unroll
+	#pragma unroll
 	for (int j = 0; j < 3; j++) {
 		state1[j] += last[j];
 		state[j] ^= state1[j];
@@ -551,7 +545,7 @@ void reduceDuplexRowV50_8(const int rowInOut, uint2 state[4], const uint32_t thr
 
 	round_lyra(state);
 
-	//ˆêŒÂŽè‘O‚ÌƒXƒŒƒbƒh‚©‚çƒf[ƒ^‚ð–á‚¤(“¯Žž‚ÉˆêŒÂæ‚ÌƒXƒŒƒbƒh‚Éƒf[ƒ^‚ð‘—‚é)
+	//ä¸€å€‹æ‰‹å‰ã®ã‚¹ãƒ¬ãƒƒãƒ‰ã‹ã‚‰ãƒ‡ãƒ¼ã‚¿ã‚’è²°ã†(åŒæ™‚ã«ä¸€å€‹å…ˆã®ã‚¹ãƒ¬ãƒƒãƒ‰ã«ãƒ‡ãƒ¼ã‚¿ã‚’é€ã‚‹)
 	uint2 Data0 = state[0];
 	uint2 Data1 = state[1];
 	uint2 Data2 = state[2];
@@ -562,9 +556,7 @@ void reduceDuplexRowV50_8(const int rowInOut, uint2 state[4], const uint32_t thr
 		last[0] ^= Data2;
 		last[1] ^= Data0;
 		last[2] ^= Data1;
-	}
-	else
-	{
+	} else {
 		last[0] ^= Data0;
 		last[1] ^= Data1;
 		last[2] ^= Data2;
@@ -572,7 +564,7 @@ void reduceDuplexRowV50_8(const int rowInOut, uint2 state[4], const uint32_t thr
 
 	if (rowInOut == 5)
 	{
-#pragma unroll 
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			last[j] ^= state[j];
 	}
@@ -582,7 +574,7 @@ void reduceDuplexRowV50_8(const int rowInOut, uint2 state[4], const uint32_t thr
 		const uint32_t s1 = ps1 + i*memshift*threads *blockDim.x;
 		const uint32_t s2 = ps2 + i*memshift*threads *blockDim.x;
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 3; j++)
 			state[j] ^= *(DMatrix + s1 + j*threads*blockDim.x) + *(DMatrix + s2 + j*threads*blockDim.x);
 

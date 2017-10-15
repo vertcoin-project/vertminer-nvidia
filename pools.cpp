@@ -63,15 +63,18 @@ struct opt_config_array {
 	{ CFG_NULL, NULL, NULL }
 };
 
-// store current credentials in pools container, operates on a single pool instance
-void pool_set_creds(struct pool_infos *p, char *full_rpc_url, char *short_rpc_url, char *rpc_username, char *rpc_password)
+// store current credentials in pools container
+void pool_set_creds(int pooln)
 {
-	snprintf(p->url, sizeof(p->url), "%s", full_rpc_url);
-	snprintf(p->short_url, sizeof(p->short_url), "%s", short_rpc_url);
-	snprintf(p->user, sizeof(p->user), "%s", rpc_username);
-	snprintf(p->pass, sizeof(p->pass), "%s", rpc_password);
+	struct pool_infos *p = &pools[pooln];
+
+	snprintf(p->url, sizeof(p->url), "%s", rpc_url);
+	snprintf(p->short_url, sizeof(p->short_url), "%s", short_url);
+	snprintf(p->user, sizeof(p->user), "%s", rpc_user);
+	snprintf(p->pass, sizeof(p->pass), "%s", rpc_pass);
 
 	if (!(p->status & POOL_ST_DEFINED)) {
+		p->id = pooln;
 		p->status |= POOL_ST_DEFINED;
 		// init pool options as "unset"
 		// until cmdline is fully parsed...
@@ -93,24 +96,25 @@ void pool_set_creds(struct pool_infos *p, char *full_rpc_url, char *short_rpc_ur
 	}
 }
 
-// fill the unset pools options with cmdline ones 
-void pool_init_defaults(struct pool_infos *poolinfos, int number_of_pools)
+// fill the unset pools options with cmdline ones
+void pool_init_defaults()
 {
-	
-	for (int i=0; i<number_of_pools; i++) {
-		poolinfos[i].id = i;
-		if (poolinfos[i].algo == -1) poolinfos[i].algo = (int) opt_algo;
-		if (poolinfos[i].max_diff == -1.) poolinfos[i].max_diff = opt_max_diff;
-		if (poolinfos[i].max_rate == -1.) poolinfos[i].max_rate = opt_max_rate;
-		if (poolinfos[i].scantime == -1) poolinfos[i].scantime = opt_scantime;
-		if (poolinfos[i].shares_limit == -1) poolinfos[i].shares_limit = opt_shares_limit;
-		if (poolinfos[i].time_limit == -1) poolinfos[i].time_limit = opt_time_limit;
+	struct pool_infos *p;
+	for (int i=0; i<num_pools+1; i++) {
+		p = &pools[i];
+		if (p->algo == -1) p->algo = (int) opt_algo;
+		if (p->max_diff == -1.) p->max_diff = opt_max_diff;
+		if (p->max_rate == -1.) p->max_rate = opt_max_rate;
+		if (p->scantime == -1) p->scantime = opt_scantime;
+		if (p->shares_limit == -1) p->shares_limit = opt_shares_limit;
+		if (p->time_limit == -1) p->time_limit = opt_time_limit;
 	}
 }
 
 // attributes only set by a json pools config
-void pool_set_attr(struct pool_infos *p, const char* key, char* arg)
+void pool_set_attr(int pooln, const char* key, char* arg)
 {
+	struct pool_infos *p = &pools[pooln];
 	if (!strcasecmp(key, "name")) {
 		snprintf(p->name, sizeof(p->name), "%s", arg);
 		return;
@@ -137,7 +141,6 @@ void pool_set_attr(struct pool_infos *p, const char* key, char* arg)
 	}
 	if (!strcasecmp(key, "time-limit")) {
 		p->time_limit = atoi(arg);
-		printf("p->time_limit = %d\n", p->time_limit);
 		return;
 	}
 	if (!strcasecmp(key, "disabled")) {
@@ -157,10 +160,11 @@ bool pool_switch(int thr_id, int pooln)
 	struct pool_infos *prev = &pools[cur_pooln];
 	struct pool_infos* p = NULL;
 
+	// save prev stratum connection infos (struct)
 	stratum_free_job(&stratum);
 	prev->stratum = stratum;
 
-	if (pooln < (num_pools+1)) {
+	if (pooln < num_pools+1) {
 		cur_pooln = pooln;
 		p = &pools[cur_pooln];
 	} else {
@@ -208,29 +212,29 @@ bool pool_switch(int thr_id, int pooln)
 		// restore flags
 		check_dups = p->check_dups;
 
-
-		// temporary... until stratum code cleanup
+			// temporary... until stratum code cleanup
 		stratum = p->stratum;
 		stratum.pooln = cur_pooln;
 
-		// unlock the stratum thread
 		tq_push(thr_info[stratum_thr_id].q, strdup(rpc_url));
 		applog(LOG_BLUE, "Switch to stratum pool %d: %s", cur_pooln,
 			strlen(p->name) ? p->name : p->short_url);
+
 	}
 	return true;
 }
 
 // search available pool
-int pool_get_first_valid(struct pool_infos *infos, int startfrom)
+int pool_get_first_valid(int startfrom)
 {
 	int next = 0;
+	struct pool_infos *p;
 	for (int i=0; i<num_pools; i++) {
 		int pooln = (startfrom + i) % num_pools;
-		
-		if (!(infos[pooln].status & POOL_ST_VALID))
+		p = &pools[pooln];
+		if (!(p->status & POOL_ST_VALID))
 			continue;
-		if (infos[pooln].status & (POOL_ST_DISABLED | POOL_ST_REMOVED))
+		if (p->status & (POOL_ST_DISABLED | POOL_ST_REMOVED))
 			continue;
 		next = pooln;
 		break;
@@ -239,10 +243,10 @@ int pool_get_first_valid(struct pool_infos *infos, int startfrom)
 }
 
 // switch to next available pool
-bool pool_switch_next(struct pool_infos *infos, int thr_id)
+bool pool_switch_next(int thr_id)
 {
 	if (num_pools > 1) {
-		int pooln = pool_get_first_valid(infos, cur_pooln+1);
+		int pooln = pool_get_first_valid(cur_pooln+1);
 		return pool_switch(thr_id, pooln);
 	} else {
 		// no switch possible
@@ -252,6 +256,19 @@ bool pool_switch_next(struct pool_infos *infos, int thr_id)
 	}
 }
 
+// seturl from api remote (deprecated)
+bool pool_switch_url(char *params)
+{
+	int prevn = cur_pooln, nextn;
+	parse_arg('o', params);
+	// cur_pooln modified by parse_arg('o'), get new pool num
+	nextn = cur_pooln;
+	// and to handle the "hot swap" from current one...
+	cur_pooln = prevn;
+	if (nextn == prevn)
+		return false;
+	return pool_switch(-1, nextn);
+}
 
 // Parse pools array in json config
 bool parse_pool_array(json_t *obj)
@@ -321,18 +338,13 @@ bool parse_pool_array(json_t *obj)
 }
 
 // debug stuff
-void pool_dump_infos(struct pool_infos *p)
+void pool_dump_infos()
 {
-	struct pool_infos *start = POOL_INFOS_HEAD(p);
+	struct pool_infos *p;
 	if (opt_benchmark) return;
 	for (int i=0; i<num_pools; i++) {
+		p = &pools[i];
 		applog(LOG_DEBUG, "POOL %01d: %s USER %s -s %d", i,
-			start[i].short_url, start[i].user, start[i].scantime);
+			p->short_url, p->user, p->scantime);
 	}
-}
-
-void pool_dump_info(struct pool_infos *p)
-{
-	if (opt_benchmark) return;
-	applog(LOG_BLUE, "POOL %01d: %s USER %s -s %d", p->id, p->short_url, p->user, p->scantime);
 }

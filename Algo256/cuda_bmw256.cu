@@ -220,27 +220,24 @@ void Compression256_2(uint32_t *  M32)
 
 #define TPB 512
 __global__ __launch_bounds__(TPB, 2)
-void bmw256_gpu_hash_32(uint32_t threads, uint32_t startNounce, uint2 *g_hash, uint32_t *const __restrict__ nonceVector, uint64_t Target)
+void bmw256_gpu_hash_32(uint32_t threads, uint32_t startNounce, uint64_t *g_hash, uint32_t *const __restrict__ nonceVector)
 {
 	const uint32_t thread = (blockDim.x * blockIdx.x + threadIdx.x);
 	if (thread < threads)
 	{
-		uint2 message[8] = { 0 };
+		uint32_t message[16] = { 0 };
 
-		message[0] = __ldg(&g_hash[thread + 0 * threads]);
-		message[1] = __ldg(&g_hash[thread + 1 * threads]);
-		message[2] = __ldg(&g_hash[thread + 2 * threads]);
-		message[3] = __ldg(&g_hash[thread + 3 * threads]);
-		//LOHI(message[2], message[3], __ldg(&g_hash[thread + 1 * threads]));
-		//LOHI(message[4], message[5], __ldg(&g_hash[thread + 2 * threads]));
-		//LOHI(message[6], message[7], __ldg(&g_hash[thread + 3 * threads]));
+		LOHI(message[0], message[1], __ldg(&g_hash[thread]));
+		LOHI(message[2], message[3], __ldg(&g_hash[thread + 1 * threads]));
+		LOHI(message[4], message[5], __ldg(&g_hash[thread + 2 * threads]));
+		LOHI(message[6], message[7], __ldg(&g_hash[thread + 3 * threads]));
 
-		message[4].x = 0x80;
-		message[7].x = 0x100;
-		Compression256((uint32_t*)message);
-		Compression256_2((uint32_t*)message);
+		message[8]=0x80;
+		message[14]=0x100;
+		Compression256(message);
+		Compression256_2(message);
 
-		if (devectorize(message[7]) <= Target)
+		if (((uint64_t*)message)[7] <= pTarget[3])
 		{
 			uint32_t tmp = atomicExch(&nonceVector[0], startNounce + thread);
 			if (tmp != 0)
@@ -250,7 +247,7 @@ void bmw256_gpu_hash_32(uint32_t threads, uint32_t startNounce, uint2 *g_hash, u
 }
 
 __host__
-void bmw256_cpu_hash_32(int thr_id, uint32_t threads, uint32_t startNounce, uint64_t *g_hash, uint32_t *resultnonces, uint64_t Target)
+void bmw256_cpu_hash_32(int thr_id, uint32_t threads, uint32_t startNounce, uint64_t *g_hash, uint32_t *resultnonces)
 {
 	const uint32_t threadsperblock = TPB;
 	dim3 grid((threads + threadsperblock - 1) / threadsperblock);
@@ -258,11 +255,12 @@ void bmw256_cpu_hash_32(int thr_id, uint32_t threads, uint32_t startNounce, uint
 
 	cudaMemset(d_GNonce[thr_id], 0, 2 * sizeof(uint32_t));
 
-	bmw256_gpu_hash_32 << <grid, block >> >(threads, startNounce, (uint2*)g_hash, d_GNonce[thr_id], Target);
+	bmw256_gpu_hash_32 << <grid, block >> >(threads, startNounce, g_hash, d_GNonce[thr_id]);
 	cudaMemcpy(d_gnounce[thr_id], d_GNonce[thr_id], 2 * sizeof(uint32_t), cudaMemcpyDeviceToHost);
 	resultnonces[0] = *(d_gnounce[thr_id]);
 	resultnonces[1] = *(d_gnounce[thr_id] + 1);
 }
+
 
 __host__
 void bmw256_cpu_init(int thr_id, uint32_t threads)
@@ -278,10 +276,8 @@ void bmw256_cpu_free(int thr_id)
 	cudaFreeHost(d_gnounce[thr_id]);
 }
 
-/*
 __host__
 void bmw256_setTarget(const void *pTargetIn)
 {
-cudaMemcpyToSymbol(pTarget, pTargetIn, 32, 0, cudaMemcpyHostToDevice);
+	cudaMemcpyToSymbol(pTarget, pTargetIn, 32, 0, cudaMemcpyHostToDevice);
 }
-*/

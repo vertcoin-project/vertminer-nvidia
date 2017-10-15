@@ -17,11 +17,15 @@
 
 #include "miner.h"
 
+void *monitor_thread(void *userdata);
+
 typedef void * nvmlDevice_t;
+
+#define NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE 16
 
 /* our own version of the PCI info struct */
 typedef struct {
-	char bus_id_str[16];             /* string form of bus info */
+	char bus_id_str[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE];
 	unsigned int domain;
 	unsigned int bus;
 	unsigned int device;
@@ -119,6 +123,7 @@ typedef struct {
 	unsigned int *nvml_pci_domain_id;
 	unsigned int *nvml_pci_bus_id;
 	unsigned int *nvml_pci_device_id;
+	unsigned int *nvml_pci_vendor_id;
 	unsigned int *nvml_pci_subsys_id;
 	int *nvml_cuda_device_id;          /* map NVML dev to CUDA dev */
 	int *cuda_nvml_device_id;          /* map CUDA dev to NVML dev */
@@ -209,6 +214,7 @@ unsigned int gpu_fanpercent(struct cgpu_info *gpu);
 unsigned int gpu_fanrpm(struct cgpu_info *gpu);
 float gpu_temp(struct cgpu_info *gpu);
 unsigned int gpu_power(struct cgpu_info *gpu);
+unsigned int gpu_plimit(struct cgpu_info *gpu);
 int gpu_pstate(struct cgpu_info *gpu);
 int gpu_busid(struct cgpu_info *gpu);
 
@@ -230,6 +236,8 @@ uint8_t nvapi_get_plimit(unsigned int devNum);
 unsigned int nvapi_devnum(int dev_id);
 int nvapi_devid(unsigned int devNum);
 
+void nvapi_toggle_clocks(int thr_id, bool enable);
+
 // cuda Replacement for 6.5 compat
 int nvapiMemGetInfo(int dev_id, uint64_t *free, uint64_t *total);
 #endif
@@ -243,4 +251,16 @@ void gpu_led_off(int dev_id);
 #define LED_MODE_OFF    0
 #define LED_MODE_SHARES 1
 #define LED_MODE_MINING 2
+
+/* ------ nvidia-settings stuff for linux -------------------- */
+
+int nvs_init();
+int nvs_set_clocks(int dev_id);
+void nvs_reset_clocks(int dev_id);
+
+// nvidia-settings (X) devNum from dev_id (cuda GPU #N)
+int8_t nvs_devnum(int dev_id);
+int nvs_devid(int8_t devNum);
+
+extern bool need_nvsettings;
 

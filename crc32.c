@@ -103,7 +103,7 @@ extern uint32_t crc32(uint32_t crc, const void *buf, size_t size)
 	return crc ^ ~0U;
 }
 
-/* CRC32 Function simplified for vertminer */
+/* CRC32 Function simplified for ccminer */
 extern uint32_t crc32_u32t(const uint32_t *buf, size_t size)
 {
 	const uint8_t *p;

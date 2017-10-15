@@ -2,6 +2,7 @@
  * Copyright 2010 Jeff Garzik
  * Copyright 2012-2014 pooler
  * Copyright 2014 vertminer team
+ * Copyright 2017 vertminer team
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -238,6 +239,33 @@ void format_hashrate(double hashrate, char *output)
 		prefix ? "%.2f %cH/s" : "%.2f H/s%c",
 		hashrate, prefix
 	);
+}
+
+void format_hashrate_unit(double hashrate, char *output, const char *unit)
+{
+	char prefix[2] = { 0, 0 };
+
+	if (hashrate < 10000) {
+		// nop
+	}
+	else if (hashrate < 1e7) {
+		prefix[0] = 'k';
+		hashrate *= 1e-3;
+	}
+	else if (hashrate < 1e10) {
+		prefix[0] = 'M';
+		hashrate *= 1e-6;
+	}
+	else if (hashrate < 1e13) {
+		prefix[0] = 'G';
+		hashrate *= 1e-9;
+	}
+	else {
+		prefix[0] = 'T';
+		hashrate *= 1e-12;
+	}
+
+	sprintf(output, "%.2f %s%s", hashrate, prefix, unit);
 }
 
 static void databuf_free(struct data_buffer *db)
@@ -555,7 +583,6 @@ static json_t *json_rpc_call(CURL *curl, const char *url,
 	err_val = json_object_get(val, "error");
 
 	if (!res_val ||
-		//if (!res_val || json_is_null(res_val) ||
 		(err_val && !json_is_null(err_val))) {
 		char *s = NULL;
 
@@ -1168,10 +1195,10 @@ static bool stratum_parse_extranonce(struct stratum_ctx *sctx, json_t *params, i
 		goto out;
 	}
 	if (xn2_size < 2 || xn2_size > 16) {
-		applog(LOG_INFO, "Failed to get valid n2size in parse_extranonce");
+		applog(LOG_ERR, "Failed to get valid n2size in parse_extranonce (%d)", xn2_size);
 		goto out;
 	}
-
+skip_n2:
 	pthread_mutex_lock(&stratum_work_lock);
 	if (sctx->xnonce1)
 		free(sctx->xnonce1);
@@ -1608,6 +1635,12 @@ static bool stratum_get_algo(struct stratum_ctx *sctx, json_t *id, json_t *param
 extern char driver_version[32];
 extern int cuda_arch[MAX_GPUS];
 
+void gpu_increment_reject(int thr_id)
+{
+	struct cgpu_info *gpu = &thr_info[thr_id].gpu;
+	if (gpu) gpu->rejected++;
+}
+
 static bool json_object_set_error(json_t *result, int code, const char *msg)
 {
 	json_t *val = json_object();
@@ -1623,7 +1656,7 @@ static bool stratum_benchdata(json_t *result, json_t *params, int thr_id)
 	char vid[32], arch[8], driver[32];
 	char *card;
 	char os[8];
-	uint32_t watts = 0;
+	uint32_t watts = 0, plimit = 0;
 	int dev_id = device_map[thr_id];
 	int cuda_ver = cuda_version();
 	struct cgpu_info *cgpu = &thr_info[thr_id].gpu;
@@ -1640,9 +1673,13 @@ static bool stratum_benchdata(json_t *result, json_t *params, int thr_id)
 	cuda_gpu_info(cgpu);
 #ifdef USE_WRAPNVML
 	cgpu->has_monitoring = true;
-	cgpu->gpu_power = gpu_power(cgpu); // mWatts
+	if (cgpu->monitor.gpu_power)
+		cgpu->gpu_power = cgpu->monitor.gpu_power;
+	else
+		cgpu->gpu_power = gpu_power(cgpu); // mWatts
 	watts = (cgpu->gpu_power >= 1000) ? cgpu->gpu_power / 1000 : 0; // ignore nvapi %
-	gpu_info(cgpu);
+	plimit = device_plimit[dev_id] > 0 ? device_plimit[dev_id] : 0;
+	gpu_info(cgpu); // vid/pid
 #endif
 	get_currentalgo(algo, sizeof(algo));
 
@@ -1666,7 +1703,10 @@ static bool stratum_benchdata(json_t *result, json_t *params, int thr_id)
 	json_object_set_new(val, "arch", json_string(arch));
 	json_object_set_new(val, "freq", json_integer(cgpu->gpu_clock/1000));
 	json_object_set_new(val, "memf", json_integer(cgpu->gpu_memclock/1000));
+	json_object_set_new(val, "curr_freq", json_integer(cgpu->monitor.gpu_clock));
+	json_object_set_new(val, "curr_memf", json_integer(cgpu->monitor.gpu_memclock));
 	json_object_set_new(val, "power", json_integer(watts));
+	json_object_set_new(val, "plimit", json_integer(plimit));
 	json_object_set_new(val, "khashes", json_real(cgpu->khashes));
 	json_object_set_new(val, "intensity", json_real(cgpu->intensity));
 	json_object_set_new(val, "throughput", json_integer(cgpu->throughput));
@@ -2079,7 +2119,7 @@ void do_gpu_tests(void)
 
 	memset(work.data, 0, sizeof(work.data));
 	work.data[0] = 0;
-//	scanhash_lbry(0, &work, 1, &done);
+	scanhash_hmq17(0, &work, 1, &done);
 
 	free(work_restart);
 	work_restart = NULL;
@@ -2102,129 +2142,8 @@ void print_hash_tests(void)
 
 	printf(CL_WHT "CPU HASH ON EMPTY BUFFER RESULTS:" CL_N "\n");
 
-//	blake256hash(&hash[0], &buf[0], 8);
-//	printpfx("blakecoin", hash);
-
-//	blake256hash(&hash[0], &buf[0], 14);
-//	printpfx("blake", hash);
-
-//	blake2s_hash(&hash[0], &buf[0]);
-//	printpfx("blake2s", hash);
-
-//	bmw_hash(&hash[0], &buf[0]);
-//	printpfx("bmw", hash);
-
-//	c11hash(&hash[0], &buf[0]);
-//	printpfx("c11", hash);
-
-//	memset(buf, 0, 180);
-//	decred_hash(&hash[0], &buf[0]);
-//	printpfx("decred", hash);
-
-//	deephash(&hash[0], &buf[0]);
-//	printpfx("deep", hash);
-
-//	fresh_hash(&hash[0], &buf[0]);
-//	printpfx("fresh", hash);
-
-//	fugue256_hash(&hash[0], &buf[0], 32);
-//	printpfx("fugue256", hash);
-
-//	groestlhash(&hash[0], &buf[0]);
-//	printpfx("groestl", hash);
-
-//	heavycoin_hash(&hash[0], &buf[0], 32);
-//	printpfx("heavy", hash);
-
-	//jackpothash(&hash[0], &buf[0]);
-	//printpfx("jackpot", hash);
-
-//	keccak256_hash(&hash[0], &buf[0]);
-//	printpfx("keccak", hash);
-
-//	memset(buf, 0, 128);
-//	lbry_hash(&hash[0], &buf[0]);
-//	printpfx("lbry", hash);
-
-//	luffa_hash(&hash[0], &buf[0]);
-//	printpfx("luffa", hash);
-
-//	lyra2re_hash(&hash[0], &buf[0]);
-//	printpfx("lyra2", hash);
-
-//	lyra2v2_hash(&hash[0], &buf[0]);
-//	printpfx("lyra2v2", hash);
-
-//	myriadhash(&hash[0], &buf[0]);
-//	printpfx("myriad", hash);
-
-//	neoscrypt(&hash[0], &buf[0], 80000620);
-//	printpfx("neoscrypt", hash);
-
-//	nist5hash(&hash[0], &buf[0]);
-//	printpfx("nist5", hash);
-
-//	pentablakehash(&hash[0], &buf[0]);
-//	printpfx("pentablake", hash);
-
-//	quarkhash(&hash[0], &buf[0]);
-//	printpfx("quark", hash);
-
-//	qubithash(&hash[0], &buf[0]);
-//	printpfx("qubit", hash);
-
-//	scrypthash(&hash[0], &buf[0]);
-//	printpfx("scrypt", hash);
-
-//	scryptjane_hash(&hash[0], &buf[0]);
-//	printpfx("scrypt-jane", hash);
-
-//	sibhash(&hash[0], &buf[0]);
-//	printpfx("sib", hash);
-
-//	skeincoinhash(&hash[0], &buf[0]);
-//	printpfx("skein", hash);
-
-//	skein2hash(&hash[0], &buf[0]);
-//	printpfx("skein2", hash);
-
-//	s3hash(&hash[0], &buf[0]);
-//	printpfx("S3", hash);
-
-//	blake256hash(&hash[0], &buf[0], 8);
-//	printpfx("vanilla", hash);
-
-//	veltorhash(&hash[0], &buf[0]);
-//	printpfx("veltor", hash);
-
-//	wcoinhash(&hash[0], &buf[0]);
-//	printpfx("whirlpool", hash);
-
-	//whirlxHash(&hash[0], &buf[0]);
-	//printpfx("whirlpoolx", hash);
-
-//	x11evo_hash(&hash[0], &buf[0]);
-//	printpfx("x11evo", hash);
-
-//	x11hash(&hash[0], &buf[0]);
-//	printpfx("X11", hash);
-
-//	x13hash(&hash[0], &buf[0]);
-//	printpfx("X13", hash);
-
-//	x14hash(&hash[0], &buf[0]);
-//	printpfx("X14", hash);
-
-//	x15hash(&hash[0], &buf[0]);
-//	printpfx("X15", hash);
-
-//	x17hash(&hash[0], &buf[0]);
-//	printpfx("X17", hash);
-
-	//memcpy(buf, zrtest, 80);
-//	zr5hash(&hash[0], &buf[0]);
-	//zr5hash_pok(&hash[0], (uint32_t*) &buf[0]);
-//	printpfx("ZR5", hash);
+	lyra2v2_hash(&hash[0], &buf[0]);
+	printpfx("lyra2v2", hash);
 
 	printf("\n");
 

@@ -577,7 +577,7 @@ void lyra2v2_gpu_hash_32_2(uint32_t threads, uint32_t startNounce, uint64_t *out
 		reduceDuplexRowSetupV2(state);
 
 		reduceDuplexRowtV2(state);
-		
+
 		((uint2*)DState)[(0 * gridDim.x * blockDim.y + thread) * blockDim.x + threadIdx.x] = state[0];
 		((uint2*)DState)[(1 * gridDim.x * blockDim.y + thread) * blockDim.x + threadIdx.x] = state[1];
 		((uint2*)DState)[(2 * gridDim.x * blockDim.y + thread) * blockDim.x + threadIdx.x] = state[2];

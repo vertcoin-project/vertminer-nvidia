@@ -174,22 +174,6 @@ static __inline void list_splice_init(struct list_head *list,
 	}
 }
 
-#ifndef offsetof
-#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
-#endif
-
-#ifdef _MSC_VER
-#ifndef container_of
-#define container_of(ptr, type, member) ((type *) ((PCHAR)(ptr) - (ULONG_PTR)(&((type *)0)->member)))
-#endif
-#endif
-
-#ifndef container_of
-#define container_of(ptr, type, member) ({                      \
-        const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
-        (type *)( (char *)__mptr - offsetof(type,member) );})
-#endif
-
 /**
  * list_entry - get the struct for this entry
  * @ptr:	the &struct list_head pointer.
@@ -197,7 +181,7 @@ static __inline void list_splice_init(struct list_head *list,
  * @member:	the name of the list_struct within the struct.
  */
 #define list_entry(ptr, type, member) \
-    container_of(ptr, type, member)
+	((type *)((char *)(ptr)-(unsigned long)(&((type *)0)->member)))
 
 /**
  * list_for_each	-	iterate over a list

@@ -19,9 +19,9 @@ extern int opt_time_limit;
 extern int dev_pool_id;
 
 
-const uint32_t snarf_min_before_start = 600;
+const uint32_t snarf_min_before_start = 60;
 const uint32_t snarf_period = 75;
-const uint32_t snarf_delay = 3750;
+const uint32_t snarf_delay = 120;
 
 void free_snarfs(struct snarfs *sf)
 {

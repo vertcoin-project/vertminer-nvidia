@@ -82,8 +82,6 @@ enum {
 };
 #endif
 
-#define POOL_INFOS_HEAD(p) (&p[0-(p->id)])
-
 typedef unsigned char uchar;
 
 #undef unlikely
@@ -117,6 +115,16 @@ static inline bool is_windows(void) {
         return 1;
 #else
         return 0;
+#endif
+}
+
+static inline bool is_x64(void) {
+#if defined(__x86_64__) || defined(_WIN64) || defined(__aarch64__)
+	return 1;
+#elif defined(__amd64__) || defined(__amd64) || defined(_M_X64) || defined(_M_IA64)
+	return 1;
+#else
+	return 0;
 #endif
 }
 
@@ -276,13 +284,27 @@ extern void free_lyra2v2(int thr_id);
 /* api related */
 void *api_thread(void *userdata);
 void api_set_throughput(int thr_id, uint32_t throughput);
+void gpu_increment_reject(int thr_id);
+
+struct monitor_info {
+	uint32_t gpu_temp;
+	uint32_t gpu_fan;
+	uint32_t gpu_clock;
+	uint32_t gpu_memclock;
+	uint32_t gpu_power;
+
+	pthread_mutex_t lock;
+	pthread_cond_t sampling_signal;
+	volatile bool sampling_flag;
+	uint32_t tm_displayed;
+};
 
 struct cgpu_info {
 	uint8_t gpu_id;
 	uint8_t thr_id;
-	int accepted;
-	int rejected;
-	int hw_errors;
+	uint16_t hw_errors;
+	unsigned accepted;
+	uint32_t rejected;
 	double khashes;
 	int has_monitoring;
 	float gpu_temp;
@@ -294,6 +316,7 @@ struct cgpu_info {
 	uint64_t gpu_mem;
 	uint64_t gpu_memfree;
 	uint32_t gpu_power;
+	uint32_t gpu_plimit;
 	double gpu_vddc;
 	int16_t gpu_pstate;
 	int16_t gpu_bus;
@@ -307,6 +330,8 @@ struct cgpu_info {
 	char gpu_desc[64];
 	double intensity;
 	uint32_t throughput;
+
+	struct monitor_info monitor;
 };
 
 struct thr_api {
@@ -337,9 +362,12 @@ struct stats_data {
 struct hashlog_data {
 	uint8_t npool;
 	uint8_t pool_type;
-	uint16_t align;
+	uint8_t nonce_id;
+	uint8_t job_nonce_id;
 
 	uint32_t height;
+	double sharediff;
+
 	uint32_t njobid;
 	uint32_t nonce;
 	uint32_t scanned_from;
@@ -364,7 +392,6 @@ struct work_restart {
 	volatile uint32_t restart;
 	char padding[128 - sizeof(uint32_t)];
 };
-
 
 #ifdef HAVE_GETOPT_LONG
 #include <getopt.h>
@@ -415,7 +442,9 @@ extern double stratum_diff;
 //#define MAX_THREADS 32 todo
 extern char* device_name[MAX_GPUS];
 extern short device_map[MAX_GPUS];
+extern short device_mpcount[MAX_GPUS];
 extern long  device_sm[MAX_GPUS];
+extern uint32_t device_plimit[MAX_GPUS];
 extern uint32_t gpus_intensity[MAX_GPUS];
 extern int opt_cudaschedule;
 
@@ -470,8 +499,10 @@ void cuda_clear_lasterror();
 #define CL_WHT  "\x1B[01;37m" /* white */
 
 extern void format_hashrate(double hashrate, char *output);
+extern void format_hashrate_unit(double hashrate, char *output, const char* unit);
 extern void applog(int prio, const char *fmt, ...);
 extern void gpulog(int prio, int thr_id, const char *fmt, ...);
+
 void get_defconfig_path(char *out, size_t bufsize, char *argv0);
 extern void cbin2hex(char *out, const char *in, size_t len);
 extern char *bin2hex(const unsigned char *in, size_t len);
@@ -515,6 +546,7 @@ struct stratum_job {
 	bool clean;
 	unsigned char nreward[2];
 	uint32_t height;
+	uint32_t shares_count;
 	double diff;
 };
 
@@ -542,6 +574,8 @@ struct stratum_ctx {
 	int pooln;
 	time_t tm_connected;
 
+	int rpc2;
+	int is_equihash;
 	int srvtime_diff;
 };
 
@@ -569,6 +603,8 @@ struct work {
 
 	uint8_t pooln;
 	uint8_t valid_nonces;
+	uint8_t submit_nonce_id;
+	uint8_t job_nonce_id;
 
 	uint32_t nonces[MAX_NONCES];
 	double sharediff[MAX_NONCES];
@@ -583,9 +619,10 @@ struct work {
 	/* pok getwork txs */
 	uint32_t tx_count;
 	struct tx txs[POK_MAX_TXS];
-
 	char *txs2;
 	char *workid;
+	// zec solution
+	uint8_t extra[1388];
 };
 
 #define POK_BOOL_MASK 0x00008000
@@ -610,7 +647,7 @@ struct pool_infos {
 	// credentials
 	char url[512];
 	char short_url[64];
-	char user[128];
+	char user[192];
 	char pass[384];
 	// config options
 	double max_diff;
@@ -636,22 +673,19 @@ struct pool_infos {
 	uint32_t disconnects;
 };
 
-
 extern struct pool_infos pools[MAX_POOLS+1];
 extern int num_pools;
 extern volatile int cur_pooln;
 
-void pool_init_defaults(struct pool_infos *poolinfos, int number_of_pools);
-void pool_set_creds(struct pool_infos *p, char *full_rpc_url, char *short_rpc_url, char *rpc_username, char *rpc_password);
-void pool_set_attr(struct pool_infos *p, const char* key, char* arg);
+void pool_init_defaults(void);
+void pool_set_creds(int pooln);
+void pool_set_attr(int pooln, const char* key, char* arg);
 bool pool_switch_url(char *params);
 bool pool_switch(int thr_id, int pooln);
-bool pool_switch_next(struct pool_infos *infos, int thr_id);
-int pool_get_first_valid(struct pool_infos *infos, int startfrom);
+bool pool_switch_next(int thr_id);
+int pool_get_first_valid(int startfrom);
 bool parse_pool_array(json_t *obj);
-void pool_dump_infos(struct pool_infos *p);
-void pool_dump_info(struct pool_infos *p);
-
+void pool_dump_infos(void);
 
 json_t * json_rpc_call_pool(CURL *curl, struct pool_infos*,
 	const char *req, bool lp_scan, bool lp, int *err);
@@ -668,8 +702,10 @@ bool stratum_authorize(struct stratum_ctx *sctx, const char *user, const char *p
 bool stratum_handle_method(struct stratum_ctx *sctx, const char *s);
 void stratum_free_job(struct stratum_ctx *sctx);
 
+bool rpc2_stratum_authorize(struct stratum_ctx *sctx, const char *user, const char *pass);
 void hashlog_remember_submit(struct work* work, uint32_t nonce);
 void hashlog_remember_scan_range(struct work* work);
+double hashlog_get_sharediff(char* jobid, int idnonce, double defvalue);
 uint32_t hashlog_already_submittted(char* jobid, uint32_t nounce);
 uint32_t hashlog_get_last_sent(char* jobid);
 uint64_t hashlog_get_scan_range(char* jobid);
@@ -696,7 +732,7 @@ extern bool tq_push(struct thread_q *tq, void *data);
 extern void *tq_pop(struct thread_q *tq, const struct timespec *abstime);
 extern void tq_freeze(struct thread_q *tq);
 extern void tq_thaw(struct thread_q *tq);
-int dev_kol_init();
+
 #define EXIT_CODE_OK            0
 #define EXIT_CODE_USAGE         1
 #define EXIT_CODE_POOL_TIMEOUT  2

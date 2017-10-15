@@ -6,8 +6,8 @@ extern "C" {
 #include "lyra2/Lyra2.h"
 }
 
-#include "miner.h"
-#include "cuda_helper.h"
+#include <miner.h>
+#include <cuda_helper.h>
 
 static uint64_t* d_hash[MAX_GPUS];
 static uint64_t* d_matrix[MAX_GPUS];
@@ -31,20 +31,6 @@ extern void groestl256_setTarget(const void *ptarget);
 extern uint32_t groestl256_cpu_hash_32(int thr_id, uint32_t threads, uint32_t startNounce, uint64_t *d_outputHash, int order);
 extern uint32_t groestl256_getSecNonce(int thr_id, int num);
 
-#ifdef _DEBUG
-#define TRACE(algo) { \
-	if (max_nonce == 1 && pdata[19] <= 1) { \
-		uint32_t* debugbuf = NULL; \
-		cudaMallocHost(&debugbuf, 8*sizeof(uint32_t)); \
-		cudaMemcpy(debugbuf, d_hash[thr_id], 8*sizeof(uint32_t), cudaMemcpyDeviceToHost); \
-		printf("lyra %s %08x %08x %08x %08x...\n", algo, swab32(debugbuf[0]), swab32(debugbuf[1]), \
-			swab32(debugbuf[2]), swab32(debugbuf[3])); \
-		cudaFreeHost(debugbuf); \
-	} \
-}
-#else
-#define TRACE(algo) {}
-#endif
 
 extern "C" void lyra2re_hash(void *state, const void *input)
 {
@@ -136,45 +122,44 @@ extern "C" int scanhash_lyra2(int thr_id, struct work* work, uint32_t max_nonce,
 
 	do {
 		int order = 0;
-		uint32_t foundNonce;
 
 		blake256_cpu_hash_80(thr_id, throughput, pdata[19], d_hash[thr_id], order++);
 		keccak256_cpu_hash_32(thr_id, throughput, pdata[19], d_hash[thr_id], order++);
 		lyra2_cpu_hash_32(thr_id, throughput, pdata[19], d_hash[thr_id], gtx750ti);
 		skein256_cpu_hash_32(thr_id, throughput, pdata[19], d_hash[thr_id], order++);
-		TRACE("S")
 
 		*hashes_done = pdata[19] - first_nonce + throughput;
 
-		foundNonce = groestl256_cpu_hash_32(thr_id, throughput, pdata[19], d_hash[thr_id], order++);
-		if (foundNonce != UINT32_MAX)
+		work->nonces[0] = groestl256_cpu_hash_32(thr_id, throughput, pdata[19], d_hash[thr_id], order++);
+		if (work->nonces[0] != UINT32_MAX)
 		{
-			uint32_t _ALIGN(64) vhash64[8];
+			const uint32_t Htarg = ptarget[7];
+			uint32_t _ALIGN(64) vhash[8];
 
-			be32enc(&endiandata[19], foundNonce);
-			lyra2re_hash(vhash64, endiandata);
+			be32enc(&endiandata[19], work->nonces[0]);
+			lyra2re_hash(vhash, endiandata);
 
-			if (vhash64[7] <= ptarget[7] && fulltest(vhash64, ptarget)) {
-				int res = 1;
-				uint32_t secNonce = groestl256_getSecNonce(thr_id, 1);
-				work_set_target_ratio(work, vhash64);
-				if (secNonce != UINT32_MAX)
-				{
-					be32enc(&endiandata[19], secNonce);
-					lyra2re_hash(vhash64, endiandata);
-					if (vhash64[7] <= ptarget[7] && fulltest(vhash64, ptarget)) {
-						if (opt_debug)
-							gpulog(LOG_BLUE, thr_id, "found second nonce %08x", secNonce);
-						if (bn_hash_target_ratio(vhash64, ptarget) > work->shareratio[0])
-							work_set_target_ratio(work, vhash64);
-						pdata[21] = secNonce;
-						res++;
-					}
+			if (vhash[7] <= Htarg && fulltest(vhash, ptarget)) {
+				work->valid_nonces = 1;
+				work_set_target_ratio(work, vhash);
+				work->nonces[1] = groestl256_getSecNonce(thr_id, 1);
+				if (work->nonces[1] != UINT32_MAX) {
+					be32enc(&endiandata[19], work->nonces[1]);
+					lyra2re_hash(vhash, endiandata);
+					bn_set_target_ratio(work, vhash, 1);
+					work->valid_nonces++;
+					pdata[19] = max(work->nonces[0], work->nonces[1]) + 1;
+				} else {
+					pdata[19] = work->nonces[0] + 1; // cursor
 				}
-				pdata[19] = foundNonce;
-				return res;
-			} else {
-				gpulog(LOG_WARNING, thr_id, "result for %08x does not validate on CPU!", foundNonce);
+				return work->valid_nonces;
+			}
+			else if (vhash[7] > Htarg) {
+				gpu_increment_reject(thr_id);
+				if (!opt_quiet)
+				gpulog(LOG_WARNING, thr_id, "result for %08x does not validate on CPU!", work->nonces[0]);
+				pdata[19] = work->nonces[0] + 1;
+				continue;
 			}
 		}
 

@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# sample script to query vertminer API
+# sample script to query ccminer API
 
 my $command = "summary|";
 
@@ -29,6 +29,6 @@ if ($sock) {
 
 } else {
 
-    print("vertminer socket failed\n");
+    print("ccminer socket failed\n");
 
 }

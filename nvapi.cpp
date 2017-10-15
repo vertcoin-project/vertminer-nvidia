@@ -2,7 +2,7 @@
  * Wrapper to nvapi.dll to query informations missing for x86 binaries (there is no nvml x86)
  * based on the work of https://github.com/ircubic/lib_gpu
  *
- * tpruvot@vertminer.org 06-2016
+ * tpruvot@ccminer.org 06-2016
  */
 
 #ifdef _WIN32
@@ -11,7 +11,7 @@
 #include <memory>
 #include <stdexcept>
 
-#include "compat/nvapi/nvapi_vertminer.h"
+#include "compat/nvapi/nvapi_ccminer.h"
 
 class NvAPILibraryHandle
 {

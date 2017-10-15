@@ -159,7 +159,7 @@
 #define PACKAGE_NAME "vertminer"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "vertminer 1.0.1"
+#define PACKAGE_STRING "vertminer 2.2.1"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "vertminer"
@@ -168,7 +168,7 @@
 #define PACKAGE_URL "http://github.com/vertcoin/vertminer-nvidia"
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "1.0.1"
+#define PACKAGE_VERSION "2.2.1"
 
 /* If using the C implementation of alloca, define if you know the
    direction of stack growth for your system; otherwise it will be
@@ -182,7 +182,7 @@
 #define STDC_HEADERS 1
 
 /* Version number of package */
-#define VERSION "1.0.1"
+#define VERSION "2.2.1"
 
 /* Define curl_free() as free() if our version of curl lacks curl_free. */
 /* #undef curl_free */

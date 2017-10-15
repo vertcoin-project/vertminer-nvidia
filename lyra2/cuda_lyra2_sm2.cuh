@@ -1,9 +1,9 @@
 #include <memory.h>
 
 #ifdef __INTELLISENSE__
-/* just for vstudio code colors */
-#undef __CUDA_ARCH__
-#define __CUDA_ARCH__ 500
+/* just for vstudio code colors, only uncomment that temporary, dont commit it */
+//#undef __CUDA_ARCH__
+//#define __CUDA_ARCH__ 500
 #endif
 
 #include "cuda_helper.h"
@@ -45,7 +45,7 @@ __constant__ static uint2 blake2b_IV_sm2[8] = {
 		Matrix[9 + 12 * i][rowInOut] ^= state[8]; \
 		Matrix[10+ 12 * i][rowInOut] ^= state[9]; \
 		Matrix[11+ 12 * i][rowInOut] ^= state[10]; \
-		} \
+	} \
   }
 
 #define absorbblock(in)  { \
@@ -87,31 +87,31 @@ void Gfunc(uint2 & a, uint2 &b, uint2 &c, uint2 &d)
 __device__ __forceinline__
 static void round_lyra(uint2 *s)
 {
-	Gfunc(s[0], s[4], s[8], s[12]);
-	Gfunc(s[1], s[5], s[9], s[13]);
+	Gfunc(s[0], s[4], s[8],  s[12]);
+	Gfunc(s[1], s[5], s[9],  s[13]);
 	Gfunc(s[2], s[6], s[10], s[14]);
 	Gfunc(s[3], s[7], s[11], s[15]);
 	Gfunc(s[0], s[5], s[10], s[15]);
 	Gfunc(s[1], s[6], s[11], s[12]);
-	Gfunc(s[2], s[7], s[8], s[13]);
-	Gfunc(s[3], s[4], s[9], s[14]);
+	Gfunc(s[2], s[7], s[8],  s[13]);
+	Gfunc(s[3], s[4], s[9],  s[14]);
 }
 
 __device__ __forceinline__
 void reduceDuplexRowSetup(const int rowIn, const int rowInOut, const int rowOut, uint2 state[16], uint2 Matrix[96][8])
 {
 #if __CUDA_ARCH__ > 500
-#pragma unroll
+	#pragma unroll
 #endif
 	for (int i = 0; i < 8; i++)
 	{
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 12; j++)
 			state[j] ^= Matrix[12 * i + j][rowIn] + Matrix[12 * i + j][rowInOut];
 
 		round_lyra(state);
 
-#pragma unroll
+		#pragma unroll
 		for (int j = 0; j < 12; j++)
 			Matrix[j + 84 - 12 * i][rowOut] = Matrix[12 * i + j][rowIn] ^ state[j];
 
@@ -138,17 +138,17 @@ void lyra2_gpu_hash_32_sm2(uint32_t threads, uint32_t startNounce, uint64_t *g_h
 	{
 		uint2 state[16];
 
-#pragma unroll
+		#pragma unroll
 		for (int i = 0; i<4; i++) {
 			LOHI(state[i].x, state[i].y, g_hash[threads*i + thread]);
 		} //password
 
-#pragma unroll
+		#pragma unroll
 		for (int i = 0; i<4; i++) {
 			state[i + 4] = state[i];
 		} //salt
 
-#pragma unroll
+		#pragma unroll
 		for (int i = 0; i<8; i++) {
 			state[i + 8] = blake2b_IV_sm2[i];
 		}
@@ -162,10 +162,10 @@ void lyra2_gpu_hash_32_sm2(uint32_t threads, uint32_t startNounce, uint64_t *g_h
 		uint2 Matrix[96][8]; // not cool
 
 		// reducedSqueezeRow0
-#pragma unroll 8
+		#pragma unroll 8
 		for (int i = 0; i < 8; i++)
 		{
-#pragma unroll 12
+			#pragma unroll 12
 			for (int j = 0; j<12; j++) {
 				Matrix[j + 84 - 12 * i][0] = state[j];
 			}
@@ -173,15 +173,15 @@ void lyra2_gpu_hash_32_sm2(uint32_t threads, uint32_t startNounce, uint64_t *g_h
 		}
 
 		// reducedSqueezeRow1
-#pragma unroll 8
+		#pragma unroll 8
 		for (int i = 0; i < 8; i++)
 		{
-#pragma unroll 12
+			#pragma unroll 12
 			for (int j = 0; j<12; j++) {
 				state[j] ^= Matrix[j + 12 * i][0];
 			}
 			round_lyra(state);
-#pragma unroll 12
+			#pragma unroll 12
 			for (int j = 0; j<12; j++) {
 				Matrix[j + 84 - 12 * i][1] = Matrix[j + 12 * i][0] ^ state[j];
 			}
@@ -214,7 +214,7 @@ void lyra2_gpu_hash_32_sm2(uint32_t threads, uint32_t startNounce, uint64_t *g_h
 
 		absorbblock(rowa);
 
-#pragma unroll
+		#pragma unroll
 		for (int i = 0; i<4; i++) {
 			g_hash[threads*i + thread] = devectorize(state[i]);
 		}

@@ -1,8 +1,8 @@
 /**
- * Blake-256 Cuda Kernel (Tested on SM 5.0)
- *
- * Tanguy Pruvot - Nov. 2014
- */
+* Blake-256 Cuda Kernel (Tested on SM 5.0)
+*
+* Tanguy Pruvot - Nov. 2014
+*/
 extern "C" {
 #include "sph/sph_blake.h"
 }
@@ -32,7 +32,7 @@ static __device__ uint64_t cuda_swab32ll(uint64_t x) {
 	return MAKE_ULONGLONG(cuda_swab32(_LODWORD(x)), cuda_swab32(_HIDWORD(x)));
 }
 
-__constant__ static uint32_t c_data[3+1];
+__constant__ static uint32_t c_data[3 + 1];
 
 __constant__ static uint32_t sigma[16][16];
 static uint32_t  c_sigma[16][16] = {
@@ -93,7 +93,7 @@ __constant__ uint2 keccak_round_constants35[24] = {
 
 #define GS2(a,b,c,d,x) { \
 	const uint32_t idx1 = sigma[r][x]; \
-	const uint32_t idx2 = sigma[r][x+1]; \
+	const uint32_t idx2 = sigma[r][(x)+1]; \
 	v[a] += (m[idx1] ^ u256[idx2]) + v[b]; \
 	v[d] = SPH_ROTL32(v[d] ^ v[a], 16); \
 	v[c] += v[d]; \
@@ -109,7 +109,7 @@ __constant__ uint2 keccak_round_constants35[24] = {
 //#define ROTR32(x, n) (((x) >> (n)) | ((x) << (32 - (n))))
 #define hostGS(a,b,c,d,x) { \
 	const uint32_t idx1 = c_sigma[r][x]; \
-	const uint32_t idx2 = c_sigma[r][x+1]; \
+	const uint32_t idx2 = c_sigma[r][(x)+1]; \
 	v[a] += (m[idx1] ^ c_u256[idx2]) + v[b]; \
 	v[d] = ROTR32(v[d] ^ v[a], 16); \
 	v[c] += v[d]; \
@@ -193,17 +193,17 @@ static void blake256_compress2nd(uint32_t *h, const uint32_t *block, const uint3
 	m[2] = block[2];
 	m[3] = block[3];
 
-	#pragma unroll
+#pragma unroll
 	for (int i = 4; i < 16; i++) {
 		m[i] = c_Padding[i];
 	}
 
-	#pragma unroll 8
+#pragma unroll 8
 	for (int i = 0; i < 8; i++)
 		v[i] = h[i];
 
-	v[8] =  u256[0];
-	v[9] =  u256[1];
+	v[8] = u256[0];
+	v[9] = u256[1];
 	v[10] = u256[2];
 	v[11] = u256[3];
 
@@ -212,7 +212,7 @@ static void blake256_compress2nd(uint32_t *h, const uint32_t *block, const uint3
 	v[14] = u256[6];
 	v[15] = u256[7];
 
-	#pragma unroll 14
+#pragma unroll 14
 	for (int r = 0; r < 14; r++) {
 		/* column step */
 		GS2(0, 4, 0x8, 0xC, 0x0);
@@ -226,18 +226,16 @@ static void blake256_compress2nd(uint32_t *h, const uint32_t *block, const uint3
 		GS2(3, 4, 0x9, 0xE, 0xE);
 	}
 
-	#pragma unroll 16
+#pragma unroll 16
 	for (int i = 0; i < 16; i++) {
 		int j = i & 7;
 		h[j] ^= v[i];
 	}
 }
-#define bitselect(a, b, c) ((a) ^ ((c) & ((b) ^ (a))))
-
 
 static void __forceinline__ __device__ keccak_block(uint2 *s)
 {
-	uint2 bc[5], tmpxor[5], tmp1, tmp2;
+	uint2 bc[5], tmpxor[5], u, v;
 	//	uint2 s[25];
 
 #pragma unroll 1
@@ -253,7 +251,7 @@ static void __forceinline__ __device__ keccak_block(uint2 *s)
 		bc[3] = tmpxor[3] ^ ROL2(tmpxor[0], 1);
 		bc[4] = tmpxor[4] ^ ROL2(tmpxor[1], 1);
 
-		tmp1 = s[1] ^ bc[0];
+		u = s[1] ^ bc[0];
 
 		s[0] ^= bc[4];
 		s[1] = ROL2(s[6] ^ bc[0], 44);
@@ -279,13 +277,13 @@ static void __forceinline__ __device__ keccak_block(uint2 *s)
 		s[17] = ROL2(s[11] ^ bc[0], 10);
 		s[11] = ROL2(s[7] ^ bc[1], 6);
 		s[7] = ROL2(s[10] ^ bc[4], 3);
-		s[10] = ROL2(tmp1, 1);
+		s[10] = ROL2(u, 1);
 
-		tmp1 = s[0]; tmp2 = s[1]; s[0] = bitselect(s[0] ^ s[2], s[0], s[1]); s[1] = bitselect(s[1] ^ s[3], s[1], s[2]); s[2] = bitselect(s[2] ^ s[4], s[2], s[3]); s[3] = bitselect(s[3] ^ tmp1, s[3], s[4]); s[4] = bitselect(s[4] ^ tmp2, s[4], tmp1);
-		tmp1 = s[5]; tmp2 = s[6]; s[5] = bitselect(s[5] ^ s[7], s[5], s[6]); s[6] = bitselect(s[6] ^ s[8], s[6], s[7]); s[7] = bitselect(s[7] ^ s[9], s[7], s[8]); s[8] = bitselect(s[8] ^ tmp1, s[8], s[9]); s[9] = bitselect(s[9] ^ tmp2, s[9], tmp1);
-		tmp1 = s[10]; tmp2 = s[11]; s[10] = bitselect(s[10] ^ s[12], s[10], s[11]); s[11] = bitselect(s[11] ^ s[13], s[11], s[12]); s[12] = bitselect(s[12] ^ s[14], s[12], s[13]); s[13] = bitselect(s[13] ^ tmp1, s[13], s[14]); s[14] = bitselect(s[14] ^ tmp2, s[14], tmp1);
-		tmp1 = s[15]; tmp2 = s[16]; s[15] = bitselect(s[15] ^ s[17], s[15], s[16]); s[16] = bitselect(s[16] ^ s[18], s[16], s[17]); s[17] = bitselect(s[17] ^ s[19], s[17], s[18]); s[18] = bitselect(s[18] ^ tmp1, s[18], s[19]); s[19] = bitselect(s[19] ^ tmp2, s[19], tmp1);
-		tmp1 = s[20]; tmp2 = s[21]; s[20] = bitselect(s[20] ^ s[22], s[20], s[21]); s[21] = bitselect(s[21] ^ s[23], s[21], s[22]); s[22] = bitselect(s[22] ^ s[24], s[22], s[23]); s[23] = bitselect(s[23] ^ tmp1, s[23], s[24]); s[24] = bitselect(s[24] ^ tmp2, s[24], tmp1);
+		u = s[0]; v = s[1]; s[0] ^= (~v) & s[2]; s[1] ^= (~s[2]) & s[3]; s[2] ^= (~s[3]) & s[4]; s[3] ^= (~s[4]) & u; s[4] ^= (~u) & v;
+		u = s[5]; v = s[6]; s[5] ^= (~v) & s[7]; s[6] ^= (~s[7]) & s[8]; s[7] ^= (~s[8]) & s[9]; s[8] ^= (~s[9]) & u; s[9] ^= (~u) & v;
+		u = s[10]; v = s[11]; s[10] ^= (~v) & s[12]; s[11] ^= (~s[12]) & s[13]; s[12] ^= (~s[13]) & s[14]; s[13] ^= (~s[14]) & u; s[14] ^= (~u) & v;
+		u = s[15]; v = s[16]; s[15] ^= (~v) & s[17]; s[16] ^= (~s[17]) & s[18]; s[17] ^= (~s[18]) & s[19]; s[18] ^= (~s[19]) & u; s[19] ^= (~u) & v;
+		u = s[20]; v = s[21]; s[20] ^= (~v) & s[22]; s[21] ^= (~s[22]) & s[23]; s[22] ^= (~s[23]) & s[24]; s[23] ^= (~s[24]) & u; s[24] ^= (~u) & v;
 		s[0] ^= keccak_round_constants35[i];
 	}
 }
@@ -513,7 +511,7 @@ void blakeKeccak256_gpu_hash_80(const uint32_t threads, const uint32_t startNonc
 
 }
 
-__global__ __launch_bounds__(256,3)
+__global__ __launch_bounds__(256, 3)
 void blake256_gpu_hash_80(const uint32_t threads, const uint32_t startNonce, uint64_t * Hash)
 {
 	uint32_t thread = (blockDim.x * blockIdx.x + threadIdx.x);
@@ -522,18 +520,18 @@ void blake256_gpu_hash_80(const uint32_t threads, const uint32_t startNonce, uin
 		uint32_t h[8];
 		uint32_t input[4];
 
-		#pragma unroll
+#pragma unroll
 		for (int i = 0; i < 8; i++) h[i] = cpu_h[i];
 
-		#pragma unroll
+#pragma unroll
 		for (int i = 0; i < 3; ++i) input[i] = c_data[i];
 
 		input[3] = startNonce + thread;
 		blake256_compress2nd(h, input, 640);
 
-		#pragma unroll
+#pragma unroll
 		for (int i = 0; i<4; i++) {
-			Hash[i*threads + thread] = cuda_swab32ll(MAKE_ULONGLONG(h[2 * i], h[2*i+1]));
+			Hash[i*threads + thread] = cuda_swab32ll(MAKE_ULONGLONG(h[2 * i], h[2 * i + 1]));
 		}
 	}
 }
@@ -546,7 +544,7 @@ void blake256_cpu_hash_80(const int thr_id, const uint32_t threads, const uint32
 	dim3 grid((threads + threadsperblock - 1) / threadsperblock);
 	dim3 block(threadsperblock);
 
-	blake256_gpu_hash_80 <<<grid, block>>> (threads, startNonce, Hash);
+	blake256_gpu_hash_80 << <grid, block >> > (threads, startNonce, Hash);
 	MyStreamSynchronize(NULL, order, thr_id);
 }
 

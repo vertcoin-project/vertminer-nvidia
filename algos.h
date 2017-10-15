@@ -9,10 +9,11 @@ enum sha_algos {
 	ALGO_COUNT
 };
 
-extern const enum sha_algos opt_algo;
+extern enum sha_algos opt_algo;
 
 static const char *algo_names[] = {
 	"lyra2v2",
+	"auto", /* reserved for multi algo */
 	""
 };
 

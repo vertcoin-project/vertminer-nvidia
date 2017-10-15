@@ -1,4 +1,5 @@
-/* CONFIG ONLY FOR MS VC++ BUILD */
+/* vertminer-config.h.  Generated from vertminer-config.h.in by configure.  */
+/* vertminer-config.h.in.  Generated from configure.ac by autoheader.  */
 
 /* Define to one of `_getb67', `GETB67', `getb67' for Cray-2 and Cray-YMP
    systems. This function is required for `alloca.c' support on those systems.
@@ -65,7 +66,7 @@
 #define HAVE_STRING_H 1
 
 /* Define to 1 if you have the <syslog.h> header file. */
-/* #undef HAVE_SYSLOG_H */
+#define HAVE_SYSLOG_H 1
 
 /* Define to 1 if you have the <sys/endian.h> header file. */
 /* #undef HAVE_SYS_ENDIAN_H */
@@ -86,7 +87,7 @@
 #define HAVE_UNISTD_H 1
 
 /* Defined if libcurl supports AsynchDNS */
-/* #undef LIBCURL_FEATURE_ASYNCHDNS */
+#define LIBCURL_FEATURE_ASYNCHDNS 1
 
 /* Defined if libcurl supports IDN */
 #define LIBCURL_FEATURE_IDN 1
@@ -110,7 +111,7 @@
 /* #undef LIBCURL_FEATURE_SSPI */
 
 /* Defined if libcurl supports DICT */
-/* #undef LIBCURL_PROTOCOL_DICT */
+#define LIBCURL_PROTOCOL_DICT 1
 
 /* Defined if libcurl supports FILE */
 #define LIBCURL_PROTOCOL_FILE 1
@@ -128,28 +129,25 @@
 #define LIBCURL_PROTOCOL_HTTPS 1
 
 /* Defined if libcurl supports IMAP */
-/* #undef LIBCURL_PROTOCOL_IMAP */
+#define LIBCURL_PROTOCOL_IMAP 1
 
 /* Defined if libcurl supports LDAP */
-/* #undef LIBCURL_PROTOCOL_LDAP */
+#define LIBCURL_PROTOCOL_LDAP 1
 
 /* Defined if libcurl supports POP3 */
-/* #undef LIBCURL_PROTOCOL_POP3 */
+#define LIBCURL_PROTOCOL_POP3 1
 
 /* Defined if libcurl supports RTSP */
-/* #undef LIBCURL_PROTOCOL_RTSP */
+#define LIBCURL_PROTOCOL_RTSP 1
 
 /* Defined if libcurl supports SMTP */
-/* #undef LIBCURL_PROTOCOL_SMTP */
+#define LIBCURL_PROTOCOL_SMTP 1
 
 /* Defined if libcurl supports TELNET */
-/* #undef LIBCURL_PROTOCOL_TELNET */
+#define LIBCURL_PROTOCOL_TELNET 1
 
 /* Defined if libcurl supports TFTP */
-/* #undef LIBCURL_PROTOCOL_TFTP */
-
-/* Define to 1 if your C compiler doesn't accept -c and -o together. */
-/* #undef NO_MINUS_C_MINUS_O */
+#define LIBCURL_PROTOCOL_TFTP 1
 
 /* Name of package */
 #define PACKAGE "vertminer"
@@ -160,11 +158,17 @@
 /* Define to the full name of this package. */
 #define PACKAGE_NAME "vertminer"
 
+/* Define to the full name and version of this package. */
+#define PACKAGE_STRING "vertminer 2.2.1"
+
+/* Define to the one symbol short name of this package. */
+#define PACKAGE_TARNAME "vertminer"
+
 /* Define to the home page for this package. */
-#define PACKAGE_URL "http://github.com/tpruvot/vertminer"
+#define PACKAGE_URL "http://github.com/vertcoin/vertminer-nvidia"
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "1.8.3"
+#define PACKAGE_VERSION "2.2.1"
 
 /* If using the C implementation of alloca, define if you know the
    direction of stack growth for your system; otherwise it will be
@@ -177,12 +181,11 @@
 /* Define to 1 if you have the ANSI C header files. */
 #define STDC_HEADERS 1
 
+/* Version number of package */
+#define VERSION "2.2.1"
+
 /* Define curl_free() as free() if our version of curl lacks curl_free. */
 /* #undef curl_free */
 
 /* Define to `unsigned int' if <sys/types.h> does not define. */
-//#define size_t unsigned int
-
-#if !defined(HAVE_STRUCT_TIMESPEC) && _MSC_VER >= 1900
-#define HAVE_STRUCT_TIMESPEC
-#endif
+/* #undef size_t */

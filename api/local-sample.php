@@ -1,6 +1,6 @@
 <?php
 /**
- * Sample Request API to vertminer
+ * Sample Request API to ccminer
  */
 defined('API_HOST') || define('API_HOST', '127.0.0.1');
 defined('API_PORT') || define('API_PORT', 4068);

@@ -11,7 +11,6 @@ rm -f config.status
 ./autogen.sh || echo done
 
 # CFLAGS="-O2" ./configure
-CFLAGS="-O3 -fgcse-sm -march=native" ./configure
 ./configure.sh
 
 make -j 4

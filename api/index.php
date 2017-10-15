@@ -1,5 +1,5 @@
 <?php
-/* vertminer API sample UI (API 1.7) */
+/* ccminer API sample UI (API 1.9) */
 
 $host = 'http://localhost/api/'; // 'http://'.$_SERVER['SERVER_NAME'].'/api/';
 $configs = array(
@@ -65,8 +65,14 @@ function translateField($key)
 
 	$intl['TEMP'] = 'T°c';
 	$intl['FAN'] = 'Fan %';
-	$intl['FREQ'] = 'Freq.';
+	$intl['CPUFREQ'] = 'CPU Freq.';
+	$intl['FREQ'] = 'Base Freq.';
+	$intl['MEMFREQ'] = 'Mem. Freq.';
+	$intl['GPUF'] = 'Curr Freq.';
+	$intl['MEMF'] = 'Mem. Freq.';
+	$intl['KHW'] = 'Efficiency';
 	$intl['POWER'] = 'Power';
+	$intl['PLIM'] = 'P.Limit';
 	$intl['PST'] = 'P-State';
 
 	// pool infos
@@ -98,8 +104,12 @@ function translateValue($key,$val,$data=array())
 		case 'NAME':
 			$val = $data['NAME'].'&nbsp;'.$data['VER'];
 			break;
+		case 'CPUFREQ':
 		case 'FREQ':
-			$val = sprintf("%d MHz", round(floatval($val)/1000.0));
+		case 'MEMFREQ':
+		case 'GPUF':
+		case 'MEMF':
+			$val = sprintf("%d MHz", $val);
 			break;
 		case 'POWER':
 			$val = sprintf("%d W", round(floatval($val)/1000.0));
@@ -110,6 +120,9 @@ function translateValue($key,$val,$data=array())
 		case 'KHS':
 		case 'NETKHS':
 			$val = '<span class="bold">'.$val.'</span> kH/s';
+			break;
+		case 'KHW':
+			$val = $val.' kH/W';
 			break;
 		case 'NAME':
 		case 'POOL';
@@ -196,7 +209,7 @@ $data = getdataFromPeers();
 ?>
 <html>
 <head>
-	<title>vertminer rig api sample</title>
+	<title>ccminer rig api sample</title>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta http-equiv="refresh" content="10">
 <style type="text/css">
@@ -252,7 +265,7 @@ span.elipsis { display: inline-block; max-width: 130px; overflow: hidden; }
 </head>
 <body>
 <div id="header">
-<h1>vertminer monitoring API RIG sample</h1>
+<h1>ccminer monitoring API RIG sample</h1>
 </div>
 
 <div id="page">
@@ -260,7 +273,7 @@ span.elipsis { display: inline-block; max-width: 130px; overflow: hidden; }
 </div>
 
 <div id="footer">
-<p>&copy; 2014-2015 <a href="http://github.com/tpruvot/vertminer">tpruvot@github</a></p>
+<p>&copy; 2014-2015 <a href="http://github.com/tpruvot/ccminer">tpruvot@github</a></p>
 </div>
 
 </body>

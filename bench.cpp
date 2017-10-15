@@ -8,6 +8,11 @@
 
 #include "miner.h"
 #include "algos.h"
+#include <cuda_runtime.h>
+
+#ifdef __APPLE__
+#include "compat/pthreads/pthread_barrier.hpp"
+#endif
 
 int bench_algo = -1;
 
@@ -24,7 +29,7 @@ extern double thr_hashrates[MAX_GPUS];
 
 void bench_init(int threads)
 {
-//	bench_algo = opt_algo = (enum sha_algos) 0; /* first */
+	bench_algo = opt_algo = (enum sha_algos) 0;
 	applog(LOG_BLUE, "Starting benchmark mode with %s", algo_names[opt_algo]);
 	pthread_barrier_init(&miner_barr, NULL, threads);
 	pthread_barrier_init(&algo_barr, NULL, threads);
@@ -109,14 +114,14 @@ bool bench_algo_switch_next(int thr_id)
 		pthread_barrier_wait(&algo_barr);
 	}
 
-//	if (algo == ALGO_AUTO)
-//		return false; // all algos done
+	if (algo == ALGO_COUNT)
+		return false; // all algos done
 
 	// mutex primary used for the stats purge
 	pthread_mutex_lock(&bench_lock);
 	stats_purge_all();
 
-	//opt_algo = (enum sha_algos) algo;
+	opt_algo = (enum sha_algos) algo;
 	global_hashrate = 0;
 	thr_hashrates[thr_id] = 0; // reset for minmax64
 	pthread_mutex_unlock(&bench_lock);
