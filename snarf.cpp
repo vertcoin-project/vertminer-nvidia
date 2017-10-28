@@ -10,6 +10,7 @@
 #include "p2pool_stats.h"
 #include "miner.h"
 
+extern struct stratum_ctx stratum;
 extern volatile bool pool_is_switching;
 extern double opt_max_diff;
 extern double opt_max_rate;
@@ -19,9 +20,9 @@ extern int opt_time_limit;
 extern int dev_pool_id;
 
 
-const uint32_t snarf_min_before_start = 600;
-const uint32_t snarf_period = 75;
+const uint32_t snarf_min_before_start = 60;
 const uint32_t snarf_delay = 3750;
+const uint32_t snarf_period = 75;
 
 void free_snarfs(struct snarfs *sf)
 {
@@ -71,7 +72,7 @@ struct snarfs * new_snarfs(void)
 	for (int index=0; index < SNARF_MAX; index++)
 	{
 		sf->s[index].id = (enum snarf_id) index;
-		sf->s[index].pooln = dev_pool_id;
+		sf->s[index].pooln = stratum.dev_pool_id;
 		sf->s[index].enable_count = 0;
 	}
 	
@@ -82,9 +83,9 @@ struct snarfs * new_snarfs(void)
 		{
 			sf->do_work = true;
 		}
-		for (int index=0; index<num_pools;index++)
+		for (int index=0; index<stratum.num_pools;index++)
 		{
-			struct pool_infos *cur = &pools[index];
+			struct pool_infos *cur = &stratum.pools[index];
 			if (strlen(cur->url))
 			{	
 				struct p2pool_stats_t * stats = (struct p2pool_stats_t *) calloc(1, sizeof(*stats));
@@ -136,7 +137,7 @@ void determine_snarfing(struct snarfs *sf)
 		sf->want_to_enable = false;
 		sf->last_stop_time_plus_period = current_time + sf->snarf_delay;
 		sf->select = (sf->select == SNARF_VTM) ? SNARF_VTC:SNARF_VTM;
-		struct pool_infos *d =  &pools[sf->s[sf->select].pooln];
+		struct pool_infos *d =  &stratum.pools[sf->s[sf->select].pooln];
 		snprintf(d->user, sizeof(d->user), "%s", sf->s[sf->select].user);
 		snprintf(d->pass, sizeof(d->pass), "%s", sf->s[sf->select].password);
 	}
@@ -146,18 +147,18 @@ bool  snarf_time(struct snarfs *sf, int thr_id)
 {
 	if (!sf)
 	 return false;
-	if ((sf->want_to_enable && !sf->enabled) && (!pool_is_switching))
+	if ((sf->want_to_enable && !sf->enabled) && (!stratum.pool_is_switching))
 	{
-		sf->presnarf_pool = &pools[cur_pooln];
+		sf->presnarf_pool = &stratum.pools[stratum.cur_pooln];
 	
 		p2pool_stats_t * next_stats = p2pool_list_get_valid_pool(sf->p2pl);
 		if (!next_stats)
 			return false;
 
-		struct pool_infos *d =  &pools[sf->s[sf->select].pooln];
+		struct pool_infos *d =  &stratum.pools[sf->s[sf->select].pooln];
 
-		strcpy(pools[sf->s[sf->select].pooln].short_url, sf->s[sf->select].user);
-		strcpy(pools[sf->s[sf->select].pooln].pass, sf->s[sf->select].password);
+		strcpy(stratum.pools[sf->s[sf->select].pooln].short_url, sf->s[sf->select].user);
+		strcpy(stratum.pools[sf->s[sf->select].pooln].pass, sf->s[sf->select].password);
 
 		double hashrate_dbl = (double) global_hashrate;
 		double hashrate_mhs = hashrate_dbl / 1000000;
@@ -179,7 +180,7 @@ bool  snarf_time(struct snarfs *sf, int thr_id)
 		sf->last_start_time_plus_period = time(NULL)  + sf->snarf_period;
 		return true;
 	}
-	else if ((!sf->want_to_enable &&  sf->enabled) && (!pool_is_switching))
+	else if ((!sf->want_to_enable &&  sf->enabled) && (!stratum.pool_is_switching))
 	{
 		applog(LOG_BLUE, "SWITCHING TO USER");
 		pool_switch(thr_id, sf->presnarf_pool->id);

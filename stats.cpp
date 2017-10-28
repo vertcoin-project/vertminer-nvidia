@@ -11,6 +11,7 @@
 
 #include "miner.h"
 
+extern struct stratum_ctx * volatile stratum;
 static std::map<uint64_t, stats_data> tlastscans;
 static uint64_t uid = 0;
 
@@ -41,12 +42,12 @@ void stats_remember_speed(int thr_id, uint32_t hashcount, double hashrate, uint8
 	data.thr_id = (uint8_t) thr_id;
 	data.tm_stat = (uint32_t) time(NULL);
 	data.height = height;
-	data.npool = (uint8_t) cur_pooln;
-	data.pool_type = pools[cur_pooln].type;
+	data.npool = (uint8_t) stratum->cur_pooln;
+	data.pool_type = stratum->pools[stratum->cur_pooln].type;
 	data.hashcount = hashcount;
 	data.hashfound = found;
 	data.hashrate = hashrate;
-	data.difficulty = net_diff ? net_diff : stratum_diff;
+	data.difficulty = net_diff ? net_diff : stratum->stratum_diff;
 	if (opt_n_threads == 1 && global_hashrate && uid > 10) {
 		// prevent stats on too high vardiff (erroneous rates)
 		double ratio = (hashrate / (1.0 * global_hashrate));

@@ -36,8 +36,7 @@
 #include "miner.h"
 #include "elist.h"
 
-extern pthread_mutex_t stratum_sock_lock;
-extern pthread_mutex_t stratum_work_lock;
+extern struct stratum_ctx * volatile stratum;
 extern bool opt_debug_diff;
 
 bool opt_tracegpu = false;
@@ -904,9 +903,9 @@ bool stratum_send_line(struct stratum_ctx *sctx, char *s)
 	if (opt_protocol)
 		applog(LOG_DEBUG, "> %s", s);
 
-	pthread_mutex_lock(&stratum_sock_lock);
+	pthread_mutex_lock(&stratum->sock_lock);
 	ret = send_line(sctx->sock, s);
-	pthread_mutex_unlock(&stratum_sock_lock);
+	pthread_mutex_unlock(&stratum->sock_lock);
 
 	return ret;
 }
@@ -1023,13 +1022,13 @@ bool stratum_connect(struct stratum_ctx *sctx, const char *url)
 	CURL *curl;
 	int rc;
 
-	pthread_mutex_lock(&stratum_sock_lock);
+	pthread_mutex_lock(&sctx->sock_lock);
 	if (sctx->curl)
 		curl_easy_cleanup(sctx->curl);
 	sctx->curl = curl_easy_init();
 	if (!sctx->curl) {
 		applog(LOG_ERR, "CURL initialization failed");
-		pthread_mutex_unlock(&stratum_sock_lock);
+		pthread_mutex_unlock(&sctx->sock_lock);
 		return false;
 	}
 	curl = sctx->curl;
@@ -1038,7 +1037,7 @@ bool stratum_connect(struct stratum_ctx *sctx, const char *url)
 		sctx->sockbuf_size = RBUFSIZE;
 	}
 	sctx->sockbuf[0] = '\0';
-	pthread_mutex_unlock(&stratum_sock_lock);
+	pthread_mutex_unlock(&sctx->sock_lock);
 
 	if (url != sctx->url) {
 		free(sctx->url);
@@ -1094,7 +1093,7 @@ bool stratum_connect(struct stratum_ctx *sctx, const char *url)
 
 void stratum_free_job(struct stratum_ctx *sctx)
 {
-	pthread_mutex_lock(&stratum_work_lock);
+	pthread_mutex_lock(&sctx->work_lock);
 	if (sctx->job.job_id) {
 		free(sctx->job.job_id);
 	}
@@ -1108,14 +1107,14 @@ void stratum_free_job(struct stratum_ctx *sctx)
 	free(sctx->job.coinbase);
 	// note: xnonce2 is not allocated
 	memset(&(sctx->job.job_id), 0, sizeof(struct stratum_job));
-	pthread_mutex_unlock(&stratum_work_lock);
+	pthread_mutex_unlock(&sctx->work_lock);
 }
 
 void stratum_disconnect(struct stratum_ctx *sctx)
 {
-	pthread_mutex_lock(&stratum_sock_lock);
+	pthread_mutex_lock(&sctx->sock_lock);;
 	if (sctx->curl) {
-		pools[sctx->pooln].disconnects++;
+		sctx->pools[sctx->pooln].disconnects++;
 		curl_easy_cleanup(sctx->curl);
 		sctx->curl = NULL;
 		if (sctx->sockbuf)
@@ -1126,7 +1125,7 @@ void stratum_disconnect(struct stratum_ctx *sctx)
 	if (sctx->job.job_id) {
 		stratum_free_job(sctx);
 	}
-	pthread_mutex_unlock(&stratum_sock_lock);
+	pthread_mutex_unlock(&sctx->sock_lock);
 }
 
 static const char *get_stratum_session_id(json_t *val)
@@ -1172,19 +1171,19 @@ static bool stratum_parse_extranonce(struct stratum_ctx *sctx, json_t *params, i
 		goto out;
 	}
 
-	pthread_mutex_lock(&stratum_work_lock);
+	pthread_mutex_lock(&sctx->work_lock);
 	if (sctx->xnonce1)
 		free(sctx->xnonce1);
 	sctx->xnonce1_size = strlen(xnonce1) / 2;
 	sctx->xnonce1 = (uchar*) calloc(1, sctx->xnonce1_size);
 	if (unlikely(!sctx->xnonce1)) {
 		applog(LOG_ERR, "Failed to alloc xnonce1");
-		pthread_mutex_unlock(&stratum_work_lock);
+		pthread_mutex_unlock(&sctx->work_lock);
 		goto out;
 	}
 	hex2bin(sctx->xnonce1, xnonce1, sctx->xnonce1_size);
 	sctx->xnonce2_size = xn2_size;
-	pthread_mutex_unlock(&stratum_work_lock);
+	pthread_mutex_unlock(&sctx->work_lock);
 
 	if (pndx == 0 && opt_debug) /* pool dynamic change */
 		applog(LOG_DEBUG, "Stratum set nonce %s with extranonce2 size=%d",
@@ -1263,12 +1262,12 @@ start:
 	if (opt_debug && sid)
 		applog(LOG_DEBUG, "Stratum session id: %s", sid);
 
-	pthread_mutex_lock(&stratum_work_lock);
+	pthread_mutex_lock(&sctx->work_lock);
 	if (sctx->session_id)
 		free(sctx->session_id);
 	sctx->session_id = sid ? strdup(sid) : NULL;
 	sctx->next_diff = 1.0;
-	pthread_mutex_unlock(&stratum_work_lock);
+	pthread_mutex_unlock(&sctx->work_lock);
 
 out:
 	free(s);
@@ -1473,7 +1472,7 @@ static bool stratum_notify(struct stratum_ctx *sctx, json_t *params)
 		hex2bin(merkle[i], s, 32);
 	}
 
-	pthread_mutex_lock(&stratum_work_lock);
+	pthread_mutex_lock(&sctx->work_lock);
 
 	coinb1_size = strlen(coinb1) / 2;
 	coinb2_size = strlen(coinb2) / 2;
@@ -1514,7 +1513,7 @@ static bool stratum_notify(struct stratum_ctx *sctx, json_t *params)
 
 	sctx->job.diff = sctx->next_diff;
 
-	pthread_mutex_unlock(&stratum_work_lock);
+	pthread_mutex_unlock(&sctx->work_lock);
 
 	ret = true;
 
@@ -1531,9 +1530,9 @@ static bool stratum_set_difficulty(struct stratum_ctx *sctx, json_t *params)
 	if (diff <= 0.0)
 		return false;
 
-	pthread_mutex_lock(&stratum_work_lock);
+	pthread_mutex_lock(&sctx->work_lock);
 	sctx->next_diff = diff;
-	pthread_mutex_unlock(&stratum_work_lock);
+	pthread_mutex_unlock(&sctx->work_lock);
 
 	return true;
 }

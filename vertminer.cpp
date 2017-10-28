@@ -142,16 +142,7 @@ int opt_nfactor = 0;
 bool opt_autotune = true;
 
 // pools (failover/getwork infos)
-struct pool_infos pools[MAX_POOLS_PLUS_DEV] = { 0 };
-int num_pools = 1;
-int dev_pool_id = 0;
-volatile int cur_pooln = 0;
 bool opt_pool_failover = true;
-volatile bool pool_on_hold = false;
-volatile bool pool_is_switching = false;
-volatile int pool_switch_count = 0;
-bool conditional_pool_rotate = false;
-
 
 // current connection
 char *rpc_user = NULL;
@@ -159,9 +150,9 @@ char *rpc_pass;
 char *rpc_url;
 char *short_url = NULL;
 
-struct stratum_ctx stratum = { 0 };
-pthread_mutex_t stratum_sock_lock = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t stratum_work_lock = PTHREAD_MUTEX_INITIALIZER;
+struct stratum_ctx stratums[MAX_STRATUM_THREADS]= { 0 };
+struct stratum_ctx * volatile stratum;
+int stratum_thr_id = -1;
 
 struct snarfs * sf = NULL;
 
@@ -174,9 +165,7 @@ long opt_proxy_type;
 struct thr_info *thr_info = NULL;
 static int work_thr_id;
 struct thr_api *thr_api;
-int stratum_thr_id = -1;
 int api_thr_id = -1;
-bool stratum_need_reset = false;
 volatile bool abort_flag = false;
 struct work_restart *work_restart = NULL;
 static int app_exit_code = EXIT_CODE_OK;
@@ -185,7 +174,6 @@ pthread_mutex_t applog_lock;
 pthread_mutex_t stats_lock;
 double thr_hashrates[MAX_GPUS] = { 0 };
 uint64_t global_hashrate = 0;
-double   stratum_diff = 0.0;
 static char *lp_id;
 double   net_diff = 0;
 uint64_t net_hashrate = 0;
@@ -559,7 +547,7 @@ int share_result(int result, int pooln, double sharediff, const char *reason)
 	char suppl[32] = { 0 };
 	char s[32] = { 0 };
 	double hashrate = 0.;
-	struct pool_infos *p = &pools[pooln];
+	struct pool_infos *p = &stratum->pools[pooln];
 
 	pthread_mutex_lock(&stats_lock);
 	for (int i = 0; i < opt_n_threads; i++) {
@@ -610,7 +598,7 @@ int share_result(int result, int pooln, double sharediff, const char *reason)
 static bool submit_upstream_work(CURL *curl, struct work *work)
 {
 	char s[512];
-	struct pool_infos *pool = &pools[work->pooln];
+	struct pool_infos *pool = &stratum->pools[work->pooln];
 	json_t *val, *res, *reason;
 	bool stale_work = false;
 	int idnonce = 0;
@@ -669,13 +657,13 @@ static bool submit_upstream_work(CURL *curl, struct work *work)
 	xnonce2str = bin2hex(work->xnonce2, work->xnonce2_len);
 	
 	// store to keep/display the solved ratio/diff
-	stratum.sharediff = work->sharediff[idnonce];
+	stratum->sharediff = work->sharediff[idnonce];
 	
-	if (net_diff && stratum.sharediff > net_diff && (opt_debug || opt_debug_diff))
+	if (net_diff && stratum->sharediff > net_diff && (opt_debug || opt_debug_diff))
 		applog(LOG_INFO, "share diff: %.5f, possible block found!!!",
-			stratum.sharediff);
+			stratum->sharediff);
 	else if (opt_debug_diff)
-		applog(LOG_DEBUG, "share diff: %.5f (x %.1f)", stratum.sharediff, work->shareratio);
+		applog(LOG_DEBUG, "share diff: %.5f (x %.1f)", stratum->sharediff, work->shareratio);
 	
 		sprintf(s, "{\"method\": \"mining.submit\", \"params\": ["
 			"\"%s\", \"%s\", \"%s\", \"%s\", \"%s\"], \"id\":%d}",
@@ -687,8 +675,8 @@ static bool submit_upstream_work(CURL *curl, struct work *work)
 	free(ntimestr);
 	free(noncestr);
 
-	gettimeofday(&stratum.tv_submit, NULL);
-	if (unlikely(!stratum_send_line(&stratum, s))) {
+	gettimeofday(&stratum->tv_submit, NULL);
+	if (unlikely(!stratum_send_line(stratum, s))) {
 		applog(LOG_ERR, "submit_upstream_work stratum_send_line failed");
 		return false;
 	}
@@ -797,10 +785,10 @@ static void *workio_thread(void *userdata)
 			break;
 		}
 
-		if (!ok && num_pools > 1 && opt_pool_failover) {
+		if (!ok && stratum->num_pools > 1 && opt_pool_failover) {
 			if (opt_debug_threads)
 				applog(LOG_DEBUG, "%s died, failover", __func__);
-			ok = pool_switch_next(&pools[0], -1);
+			ok = pool_switch_next(&stratum->pools[0], -1);
 			tq_push(wc->thr->q, NULL); // get_work() will return false
 		}
 
@@ -853,7 +841,7 @@ static bool stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
 		return false;
 	}
 
-	pthread_mutex_lock(&stratum_work_lock);
+	pthread_mutex_lock(&stratum->work_lock);
 
 	// store the job ntime as high part of jobid
 	snprintf(work->job_id, sizeof(work->job_id), "%07x %s",
@@ -898,7 +886,7 @@ static bool stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
 	if (opt_showdiff || opt_max_diff > 0.)
 		calc_network_diff(work);
 
-	pthread_mutex_unlock(&stratum_work_lock);
+	pthread_mutex_unlock(&stratum->work_lock);
 
 	if (opt_debug) {
 		uint32_t utm = work->data[17];
@@ -916,13 +904,13 @@ static bool stratum_gen_work(struct stratum_ctx *sctx, struct work *work)
 
 	work_set_target(work, sctx->job.diff / (256.0 * opt_difficulty));
 
-	if (stratum_diff != sctx->job.diff) {
+	if (stratum->stratum_diff != sctx->job.diff) {
 		char sdiff[32] = { 0 };
 		// store for api stats
-		stratum_diff = sctx->job.diff;
-		if (opt_showdiff && work->targetdiff != stratum_diff)
+		stratum->stratum_diff = sctx->job.diff;
+		if (opt_showdiff && work->targetdiff != stratum->stratum_diff)
 			snprintf(sdiff, 32, " (%.5f)", work->targetdiff);
-		applog(LOG_WARNING, "Stratum difficulty set to %g%s", stratum_diff, sdiff);
+		applog(LOG_WARNING, "Stratum difficulty set to %g%s", stratum->stratum_diff, sdiff);
 	}
 
 	return true;
@@ -940,10 +928,10 @@ void restart_threads(void)
 static bool wanna_mine(int thr_id, struct snarfs *sf)
 {
 	bool state = true;
-	bool allow_pool_rotate = (thr_id == 0 && num_pools > 1 && !pool_is_switching);
+	bool allow_pool_rotate = (thr_id == 0 && stratum->num_pools > 1 && !stratum->pool_is_switching);
 
 
-	if ((thr_id == 0) && sf && sf->do_work && !pool_is_switching)
+	if ((thr_id == 0) && sf && sf->do_work && !stratum->pool_is_switching)
 	{
 		if (sf->want_to_enable ^ sf->enabled)
 		{
@@ -972,9 +960,9 @@ static bool wanna_mine(int thr_id, struct snarfs *sf)
 	}
 	// Network Difficulty
 	if (opt_max_diff > 0.0 && net_diff > opt_max_diff) {
-		int next = pool_get_first_valid(&pools[0], cur_pooln+1);
-		if (num_pools > 1 && pools[next].max_diff != pools[cur_pooln].max_diff && opt_resume_diff <= 0.)
-			conditional_pool_rotate = allow_pool_rotate;
+		int next = pool_get_first_valid(&stratum->pools[0], stratum->cur_pooln+1);
+		if (stratum->num_pools > 1 && stratum->pools[next].max_diff != stratum->pools[stratum->cur_pooln].max_diff && opt_resume_diff <= 0.)
+			stratum->conditional_pool_rotate = allow_pool_rotate;
 		if (!thr_id && !conditional_state[thr_id] && !opt_quiet)
 			applog(LOG_INFO, "network diff too high, waiting...");
 		state = false;
@@ -985,9 +973,9 @@ static bool wanna_mine(int thr_id, struct snarfs *sf)
 	}
 	// Network hashrate
 	if (opt_max_rate > 0.0 && net_hashrate > opt_max_rate) {
-		int next = pool_get_first_valid(&pools[0], cur_pooln+1);
-		if (pools[next].max_rate != pools[cur_pooln].max_rate && opt_resume_rate <= 0.)
-			conditional_pool_rotate = allow_pool_rotate;
+		int next = pool_get_first_valid(&stratum->pools[0], stratum->cur_pooln+1);
+		if (stratum->pools[next].max_rate != stratum->pools[stratum->cur_pooln].max_rate && opt_resume_rate <= 0.)
+			stratum->conditional_pool_rotate = allow_pool_rotate;
 		if (!thr_id && !conditional_state[thr_id] && !opt_quiet) {
 			char rate[32];
 			format_hashrate(opt_max_rate, rate);
@@ -1006,7 +994,7 @@ static bool wanna_mine(int thr_id, struct snarfs *sf)
 static void *miner_thread(void *userdata)
 {
 	struct thr_info *mythr = (struct thr_info *)userdata;
-	int switchn = pool_switch_count;
+	int switchn = stratum->pool_switch_count;
 	int thr_id = mythr->id;
 	int dev_id = device_map[thr_id % MAX_GPUS];
 	struct work work;
@@ -1113,7 +1101,7 @@ static void *miner_thread(void *userdata)
 		if (regen) {
 			work_done = false;
 			extrajob = false;
-			if (stratum_gen_work(&stratum, &g_work))
+			if (stratum_gen_work(stratum, &g_work))
 			{
 				g_work_time = time(NULL);
 				thr_cur_pooln = g_work.pooln;
@@ -1170,7 +1158,7 @@ static void *miner_thread(void *userdata)
 		nodata_check_oft = 0;
 		if (work.data[nodata_check_oft] == 0 && !opt_benchmark) {
 			sleep(1);
-			if (!thr_id) pools[work.pooln].wait_time += 1;
+			if (!thr_id) stratum->pools[work.pooln].wait_time += 1;
 			gpulog(LOG_DEBUG, thr_id, "no data");
 			continue;
 		}
@@ -1187,27 +1175,27 @@ static void *miner_thread(void *userdata)
 			{
 				continue;
 			}
-			if (num_pools > 1 && conditional_pool_rotate) {
-				if (!pool_is_switching)
-					pool_switch_next(&pools[0], thr_id);
+			if (stratum->num_pools > 1 && stratum->conditional_pool_rotate) {
+				if (!stratum->pool_is_switching)
+					pool_switch_next(&stratum->pools[0], thr_id);
 				else if (time(NULL) - firstwork_time > 35) {
 					if (!opt_quiet)
 						applog(LOG_WARNING, "Pool switching timed out...");
-					if (!thr_id) pools[work.pooln].wait_time += 1;
-					pool_is_switching = false;
+					if (!thr_id) stratum->pools[work.pooln].wait_time += 1;
+					stratum->pool_is_switching = false;
 				}
 				sleep(1);
 				continue;
 			}
 
-			pool_on_hold = true;
+			stratum->pool_on_hold = true;
 			global_hashrate = 0;
 			sleep(5);
-			if (!thr_id) pools[work.pooln].wait_time += 5;
+			if (!thr_id) stratum->pools[work.pooln].wait_time += 5;
 			continue;
 		}
 
-		pool_on_hold = false;
+		stratum->pool_on_hold = false;
 
 		work_restart[thr_id].restart = 0;
 
@@ -1222,16 +1210,16 @@ static void *miner_thread(void *userdata)
 				if (thr_id != 0) {
 					sleep(1); continue;
 				}
-				if (num_pools > 1 && pools[work.pooln].time_limit > 0) {
-					if (!pool_is_switching) {
+				if (stratum->num_pools > 1 && stratum->pools[work.pooln].time_limit > 0) {
+					if (!stratum->pool_is_switching) {
 						if (!opt_quiet)
 							applog(LOG_INFO, "Pool mining timeout of %ds reached, rotate...", opt_time_limit);
-						pool_switch_next(&pools[0], thr_id);
+						pool_switch_next(&stratum->pools[0], thr_id);
 					} else if (passed > 35) {
 						// ensure we dont stay locked if pool_is_switching is not reset...
 						applog(LOG_WARNING, "Pool switch to %d timed out...", work.pooln);
-						if (!thr_id) pools[work.pooln].wait_time += 1;
-						pool_is_switching = false;
+						if (!thr_id) stratum->pools[work.pooln].wait_time += 1;
+						stratum->pool_is_switching = false;
 					}
 					sleep(1);
 					continue;
@@ -1255,22 +1243,22 @@ static void *miner_thread(void *userdata)
 
 		/* shares limit */
 		if (opt_shares_limit > 0 && firstwork_time) {
-			int64_t shares = (pools[work.pooln].accepted_count + pools[work.pooln].rejected_count);
+			int64_t shares = (stratum->pools[work.pooln].accepted_count + stratum->pools[work.pooln].rejected_count);
 			if (shares >= opt_shares_limit) {
 				int passed = (int)(time(NULL) - firstwork_time);
 				if (thr_id != 0) {
 					sleep(1); continue;
 				}
-				if (num_pools > 1 && pools[work.pooln].shares_limit > 0) {
-					if (!pool_is_switching) {
+				if (stratum->num_pools > 1 && stratum->pools[work.pooln].shares_limit > 0) {
+					if (!stratum->pool_is_switching) {
 						if (!opt_quiet)
 							applog(LOG_INFO, "Pool shares limit of %d reached, rotate...", opt_shares_limit);
-						pool_switch_next(&pools[0], thr_id);
+						pool_switch_next(&stratum->pools[0], thr_id);
 					} else if (passed > 35) {
 						// ensure we dont stay locked if pool_is_switching is not reset...
 						applog(LOG_WARNING, "Pool switch to %d timed out...", work.pooln);
-						if (!thr_id) pools[work.pooln].wait_time += 1;
-						pool_is_switching = false;
+						if (!thr_id) stratum->pools[work.pooln].wait_time += 1;
+						stratum->pool_is_switching = false;
 					}
 					sleep(1);
 					continue;
@@ -1411,7 +1399,7 @@ static void *miner_thread(void *userdata)
 			}
 
 			// since pool start
-			pools[work.pooln].work_time = (uint32_t) (time(NULL) - firstwork_time);
+			stratum->pools[work.pooln].work_time = (uint32_t) (time(NULL) - firstwork_time);
 
 			// X-Mining-Hashrate
 			global_hashrate = llround(hashrate);
@@ -1482,11 +1470,11 @@ static bool stratum_handle_response(char *buf)
 	// num = num % 10;
 
 	gettimeofday(&tv_answer, NULL);
-	timeval_subtract(&diff, &tv_answer, &stratum.tv_submit);
+	timeval_subtract(&diff, &tv_answer, &stratum->tv_submit);
 	// store time required to the pool to answer to a submit
-	stratum.answer_msec = (1000 * diff.tv_sec) + (uint32_t) (0.001 * diff.tv_usec);
+	stratum->answer_msec = (1000 * diff.tv_sec) + (uint32_t) (0.001 * diff.tv_usec);
 
-	share_result(json_is_true(res_val), stratum.pooln, stratum.sharediff,
+	share_result(json_is_true(res_val), stratum->pooln, stratum->sharediff,
 		err_val ? json_string_value(json_array_get(err_val, 1)) : NULL);
 
 	ret = true;
@@ -1501,50 +1489,51 @@ static void *stratum_thread(void *userdata)
 {
 	struct thr_info *mythr = (struct thr_info *)userdata;
 	struct pool_infos *pool;
-	stratum_ctx *ctx = &stratum;
+	stratum_ctx *ctx = stratum;
 	int pooln, switchn;
 	char *s;
 
 wait_stratum_url:
-	stratum.url = (char*)tq_pop(mythr->q, NULL);
-	if (!stratum.url)
+	stratum->url = (char*)tq_pop(mythr->q, NULL);
+	printf("stratum.url = %s\n", stratum->url);
+	if (!stratum->url)
 		goto out;
 
-	if (!pool_is_switching)
-		applog(LOG_BLUE, "Starting on %s", stratum.url);
+	if (!stratum->pool_is_switching)
+		applog(LOG_BLUE, "Starting on %s", stratum->url);
 
-	ctx->pooln = pooln = cur_pooln;
-	switchn = pool_switch_count;
-	pool = &pools[pooln];
+	ctx->pooln = pooln = stratum->cur_pooln;
+	switchn = stratum->pool_switch_count;
+	pool = &stratum->pools[pooln];
 
-	pool_is_switching = false;
-	stratum_need_reset = false;
+	stratum->pool_is_switching = false;
+	stratum->need_reset = false;
 
 	while (!abort_flag) {
 		int failures = 0;
 
-		if (stratum_need_reset) {
-			stratum_need_reset = false;
-			if (stratum.url)
-				stratum_disconnect(&stratum);
+		if (stratum->need_reset) {
+			stratum->need_reset = false;
+			if (stratum->url)
+				stratum_disconnect(stratum);
 		}
 
-		while (!stratum.curl && !abort_flag) {
+		while (!stratum->curl && !abort_flag) {
 			pthread_mutex_lock(&g_work_lock);
 			g_work_time = 0;
 			g_work.data[0] = 0;
 			pthread_mutex_unlock(&g_work_lock);
 			restart_threads();
 
-			if (!stratum_connect(&stratum, pool->url) ||
-			    !stratum_subscribe(&stratum) ||
-			    !stratum_authorize(&stratum, pool->user, pool->pass))
+			if (!stratum_connect(stratum, pool->url) ||
+			    !stratum_subscribe(stratum) ||
+			    !stratum_authorize(stratum, pool->user, pool->pass))
 			{
-				stratum_disconnect(&stratum);
+				stratum_disconnect(stratum);
 				if (opt_retries >= 0 && ++failures > opt_retries) {
-					if (num_pools > 1 && opt_pool_failover) {
+					if (stratum->num_pools > 1 && opt_pool_failover) {
 						applog(LOG_WARNING, "Stratum connect timeout, failover...");
-						pool_switch_next(&pools[0], -1);
+						pool_switch_next(&stratum->pools[0], -1);
 					} else {
 						applog(LOG_ERR, "...terminating workio thread");
 						//tq_push(thr_info[work_thr_id].q, NULL);
@@ -1553,7 +1542,7 @@ wait_stratum_url:
 						goto out;
 					}
 				}
-				if (switchn != pool_switch_count)
+				if (switchn != stratum->pool_switch_count)
 					goto pool_switched;
 				if (!opt_benchmark)
 					applog(LOG_ERR, "...retry after %d seconds", opt_fail_pause);
@@ -1561,23 +1550,23 @@ wait_stratum_url:
 			}
 		}
 
-		if (switchn != pool_switch_count) goto pool_switched;
+		if (switchn != stratum->pool_switch_count) goto pool_switched;
 
-		if (stratum.job.job_id &&
-		    (!g_work_time || strncmp(stratum.job.job_id, g_work.job_id + 8, sizeof(g_work.job_id)-8))) {
+		if (stratum->job.job_id &&
+		    (!g_work_time || strncmp(stratum->job.job_id, g_work.job_id + 8, sizeof(g_work.job_id)-8))) {
 			pthread_mutex_lock(&g_work_lock);
-			if (stratum_gen_work(&stratum, &g_work))
+			if (stratum_gen_work(stratum, &g_work))
 				g_work_time = time(NULL);
-			if (stratum.job.clean) {
+			if (stratum->job.clean) {
 				static uint32_t last_bloc_height;
-				if (!opt_quiet && stratum.job.height != last_bloc_height) {
-					last_bloc_height = stratum.job.height;
+				if (!opt_quiet && stratum->job.height != last_bloc_height) {
+					last_bloc_height = stratum->job.height;
 					if (net_diff > 0.)
 						applog(LOG_BLUE, "%s block %d, diff %.3f", algo_names[opt_algo],
-							stratum.job.height, net_diff);
+							stratum->job.height, net_diff);
 					else
 						applog(LOG_BLUE, "%s %s block %d", pool->short_url, algo_names[opt_algo],
-							stratum.job.height);
+							stratum->job.height);
 				}
 				restart_threads();
 				if (check_dups)
@@ -1585,31 +1574,31 @@ wait_stratum_url:
 				stats_purge_old();
 			} else if (opt_debug && !opt_quiet) {
 					applog(LOG_BLUE, "%s asks job %d for block %d", pool->short_url,
-						strtoul(stratum.job.job_id, NULL, 16), stratum.job.height);
+						strtoul(stratum->job.job_id, NULL, 16), stratum->job.height);
 			}
 			pthread_mutex_unlock(&g_work_lock);
 		}
 		
 		// check we are on the right pool
-		if (switchn != pool_switch_count) goto pool_switched;
+		if (switchn != stratum->pool_switch_count) goto pool_switched;
 
-		if (!stratum_socket_full(&stratum, opt_timeout)) {
+		if (!stratum_socket_full(stratum, opt_timeout)) {
 			if (opt_debug)
 				applog(LOG_WARNING, "Stratum connection timed out");
 			s = NULL;
 		} else
-			s = stratum_recv_line(&stratum);
+			s = stratum_recv_line(stratum);
 
 		// double check we are on the right pool
-		if (switchn != pool_switch_count) goto pool_switched;
+		if (switchn != stratum->pool_switch_count) goto pool_switched;
 
 		if (!s) {
-			stratum_disconnect(&stratum);
-			if (!opt_quiet && !pool_on_hold)
+			stratum_disconnect(stratum);
+			if (!opt_quiet && !stratum->pool_on_hold)
 				applog(LOG_WARNING, "Stratum connection interrupted");
 			continue;
 		}
-		if (!stratum_handle_method(&stratum, s))
+		if (!stratum_handle_method(stratum, s))
 			stratum_handle_response(s);
 		free(s);
 	}
@@ -1622,8 +1611,8 @@ out:
 
 pool_switched:
 	/* this thread should not die on pool switch */
-	stratum_disconnect(&(pools[pooln].stratum));
-	if (stratum.url) free(stratum.url); stratum.url = NULL;
+	stratum_disconnect(stratum);
+	if (stratum->url) free(stratum->url); stratum->url = NULL;
 	if (opt_debug_threads)
 		applog(LOG_DEBUG, "%s() reinit...", __func__);
 	goto wait_stratum_url;
@@ -1876,7 +1865,7 @@ void parse_arg(int key, char *arg)
 	case 'p':
 		free(rpc_pass);
 		rpc_pass = strdup(arg);
-		pool_set_creds(&pools[0], rpc_url, short_url, rpc_user, rpc_pass);
+		pool_set_creds(&stratum->pools[0], rpc_url, short_url, rpc_user, rpc_pass);
 		break;
 	case 'P':
 		opt_protocol = true;
@@ -1923,13 +1912,13 @@ void parse_arg(int key, char *arg)
 	case 'u':
 		free(rpc_user);
 		rpc_user = strdup(arg);
-		pool_set_creds(&pools[cur_pooln], rpc_url, short_url, rpc_user, rpc_pass);
+		pool_set_creds(&stratum->pools[stratum->cur_pooln], rpc_url, short_url, rpc_user, rpc_pass);
 		break;
 	case 'o':			/* --url */
-		if (pools[cur_pooln].type != POOL_UNUSED) {
+		if (stratum->pools[stratum->cur_pooln].type != POOL_UNUSED) {
 			// rotate pool pointer
-			cur_pooln = (cur_pooln + 1) % MAX_POOLS;
-			num_pools = max(cur_pooln+1, num_pools);
+			stratum->cur_pooln = (stratum->cur_pooln + 1) % MAX_POOLS;
+			stratum->num_pools = max(stratum->cur_pooln+1, stratum->num_pools);
 			// change some defaults if multi pools
 			if (opt_retries == -1) opt_retries = 1;
 			if (opt_fail_pause == 30) opt_fail_pause = 5;
@@ -1972,7 +1961,7 @@ void parse_arg(int key, char *arg)
 			// host:port only
 			short_url = ap;
 		}
-		pool_set_creds(&pools[cur_pooln], rpc_url, short_url, rpc_user, rpc_pass);
+		pool_set_creds(&stratum->pools[stratum->cur_pooln], rpc_url, short_url, rpc_user, rpc_pass);
 		break;
 	case 'O':			/* --userpass */
 		p = strchr(arg, ':');
@@ -1983,7 +1972,7 @@ void parse_arg(int key, char *arg)
 		strncpy(rpc_user, arg, p - arg);
 		free(rpc_pass);
 		rpc_pass = strdup(p + 1);
-		pool_set_creds(&pools[cur_pooln], rpc_url, short_url, rpc_user, rpc_pass);
+		pool_set_creds(&stratum->pools[stratum->cur_pooln], rpc_url, short_url, rpc_user, rpc_pass);
 		break;
 	case 'x':			/* --proxy */
 		if (!strncasecmp(arg, "socks4://", 9))
@@ -2000,7 +1989,7 @@ void parse_arg(int key, char *arg)
 			opt_proxy_type = CURLPROXY_HTTP;
 		free(opt_proxy);
 		opt_proxy = strdup(arg);
-		pool_set_creds(&pools[cur_pooln], rpc_url, short_url, rpc_user, rpc_pass);
+		pool_set_creds(&stratum->pools[stratum->cur_pooln], rpc_url, short_url, rpc_user, rpc_pass);
 		break;
 	case 1001:
 		free(opt_cert);
@@ -2291,28 +2280,28 @@ void parse_arg(int key, char *arg)
 	/* PER POOL CONFIG OPTIONS */
 
 	case 1100: /* pool name */
-		pool_set_attr(&pools[cur_pooln], "name", arg);
+		pool_set_attr(&stratum->pools[stratum->cur_pooln], "name", arg);
 		break;
 	case 1101: /* pool algo */
-		pool_set_attr(&pools[cur_pooln], "algo", arg);
+		pool_set_attr(&stratum->pools[stratum->cur_pooln], "algo", arg);
 		break;
 	case 1102: /* pool scantime */
-		pool_set_attr(&pools[cur_pooln], "scantime", arg);
+		pool_set_attr(&stratum->pools[stratum->cur_pooln], "scantime", arg);
 		break;
 	case 1108: /* pool time-limit */
-		pool_set_attr(&pools[cur_pooln], "time-limit", arg);
+		pool_set_attr(&stratum->pools[stratum->cur_pooln], "time-limit", arg);
 		break;
 	case 1109: /* pool shares-limit (1.7.6) */
-		pool_set_attr(&pools[cur_pooln], "shares-limit", arg);
+		pool_set_attr(&stratum->pools[stratum->cur_pooln], "shares-limit", arg);
 		break;
 	case 1161: /* pool max-diff */
-		pool_set_attr(&pools[cur_pooln], "max-diff", arg);
+		pool_set_attr(&stratum->pools[stratum->cur_pooln], "max-diff", arg);
 		break;
 	case 1162: /* pool max-rate */
-		pool_set_attr(&pools[cur_pooln], "max-rate", arg);
+		pool_set_attr(&stratum->pools[stratum->cur_pooln], "max-rate", arg);
 		break;
 	case 1199:
-		pool_set_attr(&pools[cur_pooln], "disabled", arg);
+		pool_set_attr(&stratum->pools[stratum->cur_pooln], "disabled", arg);
 		break;
 
 	case 'V':
@@ -2470,13 +2459,22 @@ int main(int argc, char *argv[])
 	printf("1 percent dev fee to turekaj for miner improvements \n");
 	printf("1 percent dev fee to Vertcoin Dev Team (vertcoin.org) \n");
 
+	/* init stratum data.. */
+	for (int i=0; i < MAX_STRATUM_THREADS; i++)
+	{
+		memset(&stratums[i], 0, sizeof(struct stratum_ctx));
+		stratums[i].sock_lock = PTHREAD_MUTEX_INITIALIZER;
+		stratums[i].work_lock = PTHREAD_MUTEX_INITIALIZER;
+		pthread_mutex_init(&stratums[i].sock_lock, NULL);
+		pthread_mutex_init(&stratums[i].work_lock, NULL);
+	}
+	stratum = &stratums[0];
+
 	rpc_user = strdup("");
 	rpc_pass = strdup("");
 	rpc_url = strdup("");
 
 	pthread_mutex_init(&applog_lock, NULL);
-	pthread_mutex_init(&stratum_sock_lock, NULL);
-	pthread_mutex_init(&stratum_work_lock, NULL);
 	pthread_mutex_init(&stats_lock, NULL);
 	pthread_mutex_init(&g_work_lock, NULL);
 
@@ -2539,20 +2537,18 @@ int main(int argc, char *argv[])
 			show_usage_and_exit(1);
 		}
 		// ensure a pool is set with default params...
-		pool_set_creds(&pools[0], rpc_url, short_url, rpc_user, rpc_pass);
+		pool_set_creds(&stratum->pools[0], rpc_url, short_url, rpc_user, rpc_pass);
 	}
 
-	/* init stratum data.. */
-	memset(&stratum.url, 0, sizeof(stratum));
 
 	// ensure default params are set
-	dev_pool_id = num_pools;
-	pool_init_defaults(&pools[0], num_pools+1);
+	stratum->dev_pool_id = stratum->num_pools;
+	pool_init_defaults(&stratum->pools[0], stratum->num_pools+1);
 
 	if (opt_debug)
-		pool_dump_infos(&pools[0]);
-	cur_pooln = pool_get_first_valid(&pools[0], 0);
-	pool_switch(-1, cur_pooln);
+		pool_dump_infos(&stratum->pools[0]);
+	stratum->cur_pooln = pool_get_first_valid(&stratum->pools[0], 0);
+	pool_switch(-1, stratum->cur_pooln);
 
 	flags = CURL_GLOBAL_ALL;
 	if (curl_global_init(flags)) {
@@ -2673,6 +2669,7 @@ int main(int argc, char *argv[])
 	}
 
 	/* real start of the stratum work */
+	printf("%s: pushing %s to stratum\n", __func__, rpc_url);
 	tq_push(thr_info[stratum_thr_id].q, strdup(rpc_url));
 
 #ifdef USE_WRAPNVML

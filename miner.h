@@ -518,7 +518,56 @@ struct stratum_job {
 	double diff;
 };
 
+#define MAX_POOLS 8
+#define MAX_POOLS_PLUS_DEV (MAX_POOLS + 1)
+struct pool_infos {
+	uint8_t id;
+#define POOL_UNUSED   0
+#define POOL_GETWORK  1
+#define POOL_STRATUM  2
+#define POOL_LONGPOLL 4
+	uint8_t type;
+#define POOL_ST_DEFINED 1
+#define POOL_ST_VALID 2
+#define POOL_ST_DISABLED 4
+#define POOL_ST_REMOVED 8
+	uint16_t status;
+	int algo;
+	char name[64];
+	// credentials
+	char url[512];
+	char short_url[64];
+	char user[128];
+	char pass[384];
+	// config options
+	double max_diff;
+	double max_rate;
+	int shares_limit;
+	int time_limit;
+	int scantime;
+	// connection
+	uint16_t check_dups; // 16_t for align
+	int retries;
+	int fail_pause;
+	int timeout;
+	// stats
+	uint32_t work_time;
+	uint32_t wait_time;
+	uint32_t accepted_count;
+	uint32_t rejected_count;
+	uint32_t solved_count;
+	uint32_t stales_count;
+	time_t last_share_time;
+	double best_share;
+	uint32_t disconnects;
+};
+
+#define MAX_STRATUM_THREADS 3
+
 struct stratum_ctx {
+	int thr_id;
+	pthread_mutex_t sock_lock;
+	pthread_mutex_t work_lock;
 	char *url;
 
 	CURL *curl;
@@ -543,6 +592,16 @@ struct stratum_ctx {
 	time_t tm_connected;
 
 	int srvtime_diff;
+	struct pool_infos pools[MAX_POOLS_PLUS_DEV];
+	int num_pools;
+	int dev_pool_id;
+	volatile int cur_pooln;
+	volatile bool pool_on_hold;
+	volatile bool pool_is_switching;
+	volatile int pool_switch_count;
+	bool conditional_pool_rotate;
+	double   stratum_diff;
+	bool need_reset;
 };
 
 #define POK_MAX_TXS   4
@@ -591,50 +650,6 @@ struct work {
 #define POK_BOOL_MASK 0x00008000
 #define POK_DATA_MASK 0xFFFF0000
 
-#define MAX_POOLS 8
-#define MAX_POOLS_PLUS_DEV (MAX_POOLS + 1)
-struct pool_infos {
-	uint8_t id;
-#define POOL_UNUSED   0
-#define POOL_GETWORK  1
-#define POOL_STRATUM  2
-#define POOL_LONGPOLL 4
-	uint8_t type;
-#define POOL_ST_DEFINED 1
-#define POOL_ST_VALID 2
-#define POOL_ST_DISABLED 4
-#define POOL_ST_REMOVED 8
-	uint16_t status;
-	int algo;
-	char name[64];
-	// credentials
-	char url[512];
-	char short_url[64];
-	char user[128];
-	char pass[384];
-	// config options
-	double max_diff;
-	double max_rate;
-	int shares_limit;
-	int time_limit;
-	int scantime;
-	// connection
-	struct stratum_ctx stratum;
-	uint16_t check_dups; // 16_t for align
-	int retries;
-	int fail_pause;
-	int timeout;
-	// stats
-	uint32_t work_time;
-	uint32_t wait_time;
-	uint32_t accepted_count;
-	uint32_t rejected_count;
-	uint32_t solved_count;
-	uint32_t stales_count;
-	time_t last_share_time;
-	double best_share;
-	uint32_t disconnects;
-};
 
 
 extern struct pool_infos pools[MAX_POOLS+1];

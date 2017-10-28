@@ -11,6 +11,7 @@
 #include <map>
 
 #include "miner.h"
+extern struct stratum_ctx stratum;
 
 #define HI_DWORD(u64) ((uint32_t) (u64 >> 32))
 #define LO_DWORD(u64) ((uint32_t) u64)
@@ -79,8 +80,8 @@ void hashlog_remember_submit(struct work* work, uint32_t nonce)
 	data.height = work->height;
 	data.njobid = (uint32_t) njobid;
 	data.tm_add = data.tm_upd = data.tm_sent = (uint32_t) time(NULL);
-	data.npool = (uint8_t) cur_pooln;
-	data.pool_type = pools[cur_pooln].type;
+	data.npool = (uint8_t) stratum.cur_pooln;
+	data.pool_type = stratum.pools[stratum.cur_pooln].type;
 	tlastshares[key] = data;
 }
 
