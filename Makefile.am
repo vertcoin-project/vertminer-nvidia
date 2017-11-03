@@ -18,7 +18,7 @@ bin_PROGRAMS = vertminer
 vertminer_SOURCES	= elist.h miner.h compat.h \
 			  compat/inttypes.h compat/stdbool.h compat/unistd.h \
 			  compat/sys/time.h compat/getopt/getopt.h \
-			  snarf.cpp p2pool_stats.cpp \
+			  p2pool_stats.cpp \
 			  crc32.c \
 			  vertminer.cpp pools.cpp util.cpp bench.cpp bignum.cpp \
 			  api.cpp hashlog.cpp nvml.cpp stats.cpp sysinfos.cpp cuda.cpp \

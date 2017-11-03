@@ -351,6 +351,7 @@ struct hashlog_data {
 };
 
 /* end of api */
+struct stratum_ctx; 
 
 struct thr_info {
 	int		id;
@@ -518,6 +519,7 @@ struct stratum_job {
 	double diff;
 };
 
+
 #define MAX_POOLS 8
 #define MAX_POOLS_PLUS_DEV (MAX_POOLS + 1)
 struct pool_infos {
@@ -560,12 +562,14 @@ struct pool_infos {
 	time_t last_share_time;
 	double best_share;
 	uint32_t disconnects;
+	struct stratum_ctx *stratum;
 };
 
 #define MAX_STRATUM_THREADS 3
 
 struct stratum_ctx {
-	int thr_id;
+	int id;
+	struct thr_info * thread;
 	pthread_mutex_t sock_lock;
 	pthread_mutex_t work_lock;
 	char *url;
@@ -645,6 +649,7 @@ struct work {
 
 	char *txs2;
 	char *workid;
+	struct stratum_ctx *ctx;
 };
 
 #define POK_BOOL_MASK 0x00008000
@@ -656,15 +661,15 @@ extern struct pool_infos pools[MAX_POOLS+1];
 extern int num_pools;
 extern volatile int cur_pooln;
 
-void pool_init_defaults(struct pool_infos *poolinfos, int number_of_pools);
+void pool_init_defaults(struct stratum_ctx * ctx, struct pool_infos *poolinfos, int number_of_pools);
 void pool_set_creds(struct pool_infos *p, char *full_rpc_url, char *short_rpc_url, char *rpc_username, char *rpc_password);
 void pool_set_attr(struct pool_infos *p, const char* key, char* arg);
 bool pool_switch_url(char *params);
-bool pool_switch(int thr_id, int pooln);
-bool pool_switch_next(struct pool_infos *infos, int thr_id);
-int pool_get_first_valid(struct pool_infos *infos, int startfrom);
+bool pool_switch(struct stratum_ctx *ctx, int pooln);
+bool pool_switch_next(struct stratum_ctx *ctx, int thr_id);
+int pool_get_first_valid(struct stratum_ctx *ctx, int startfrom);
 bool parse_pool_array(json_t *obj);
-void pool_dump_infos(struct pool_infos *p);
+void pool_dump_infos(struct pool_infos *p, int num_pools);
 void pool_dump_info(struct pool_infos *p);
 
 

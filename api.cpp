@@ -411,13 +411,13 @@ static char *remote_switchpool(char *params)
 		return buffer;
 	if (!params || strlen(params) == 0) {
 		// rotate pool test
-		ret = pool_switch_next(&stratum->pools[0], -1);
+		ret = pool_switch_next(stratum, -1);
 	} else {
 		int n = atoi(params);
 		if (n == stratum->cur_pooln)
 			ret = true;
 		else if (n < stratum->num_pools)
-			ret = pool_switch(-1, n);
+			ret = pool_switch(stratum, n);
 	}
 	sprintf(buffer, "%s|", ret ? "ok" : "fail");
 	return buffer;
@@ -435,7 +435,7 @@ static char *remote_seturl(char *params)
 		return buffer;
 	if (!params || strlen(params) == 0) {
 		// rotate pool test
-		ret = pool_switch_next(&stratum->pools[0], -1);
+		ret = pool_switch_next(stratum, -1);
 	} 
 	sprintf(buffer, "%s|", ret ? "ok" : "fail");
 	return buffer;

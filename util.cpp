@@ -423,207 +423,207 @@ static int sockopt_keepalive_cb(void *userdata, curl_socket_t fd,
 /* For getwork (longpoll or wallet) - not stratum pools!
  * DO NOT USE DIRECTLY
  */
-static json_t *json_rpc_call(CURL *curl, const char *url,
-		      const char *userpass, const char *rpc_req,
-		      bool longpoll_scan, bool longpoll, bool keepalive, int *curl_err)
-{
-	json_t *val, *err_val, *res_val;
-	int rc;
-	struct data_buffer all_data = { 0 };
-	struct upload_buffer upload_data;
-	json_error_t err;
-	struct curl_slist *headers = NULL;
-	char *httpdata;
-	char len_hdr[64], hashrate_hdr[64];
-	char curl_err_str[CURL_ERROR_SIZE] = { 0 };
-	long timeout = longpoll ? opt_timeout : opt_timeout/2;
-	struct header_info hi = { 0 };
-	bool lp_scanning = longpoll_scan;
-
-	/* it is assumed that 'curl' is freshly [re]initialized at this pt */
-
-	if (opt_protocol)
-		curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
-	curl_easy_setopt(curl, CURLOPT_URL, url);
-	if (opt_cert) {
-		curl_easy_setopt(curl, CURLOPT_CAINFO, opt_cert);
-		// ignore CN domain name, allow to move cert files
-		curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
-	}
-	curl_easy_setopt(curl, CURLOPT_ENCODING, "");
-	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 0);
-	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
-	curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, all_data_cb);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &all_data);
-	curl_easy_setopt(curl, CURLOPT_READFUNCTION, upload_data_cb);
-	curl_easy_setopt(curl, CURLOPT_READDATA, &upload_data);
-#if LIBCURL_VERSION_NUM >= 0x071200
-	curl_easy_setopt(curl, CURLOPT_SEEKFUNCTION, &seek_data_cb);
-	curl_easy_setopt(curl, CURLOPT_SEEKDATA, &upload_data);
-#endif
-	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_err_str);
-	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout);
-	curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, resp_hdr_cb);
-	curl_easy_setopt(curl, CURLOPT_HEADERDATA, &hi);
-	if (opt_proxy) {
-		curl_easy_setopt(curl, CURLOPT_PROXY, opt_proxy);
-		curl_easy_setopt(curl, CURLOPT_PROXYTYPE, opt_proxy_type);
-	}
-	if (userpass) {
-		curl_easy_setopt(curl, CURLOPT_USERPWD, userpass);
-		curl_easy_setopt(curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
-	}
-#if LIBCURL_VERSION_NUM >= 0x070f06
-	if (keepalive)
-		curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, sockopt_keepalive_cb);
-#endif
-	curl_easy_setopt(curl, CURLOPT_POST, 1);
-
-	if (opt_protocol)
-		applog(LOG_DEBUG, "JSON protocol request:\n%s", rpc_req);
-
-	upload_data.buf = rpc_req;
-	upload_data.len = strlen(rpc_req);
-	upload_data.pos = 0;
-	sprintf(len_hdr, "Content-Length: %lu", (unsigned long) upload_data.len);
-	sprintf(hashrate_hdr, "X-Mining-Hashrate: %llu", (unsigned long long) global_hashrate);
-
-	headers = curl_slist_append(headers, "Content-Type: application/json");
-	headers = curl_slist_append(headers, len_hdr);
-	headers = curl_slist_append(headers, "User-Agent: " USER_AGENT);
-	headers = curl_slist_append(headers, "X-Mining-Extensions: longpoll noncerange reject-reason");
-	headers = curl_slist_append(headers, hashrate_hdr);
-	headers = curl_slist_append(headers, "Accept:"); /* disable Accept hdr*/
-	headers = curl_slist_append(headers, "Expect:"); /* disable Expect hdr*/
-
-	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-	rc = curl_easy_perform(curl);
-	if (curl_err != NULL)
-		*curl_err = rc;
-	if (rc) {
-		if (!(longpoll && rc == CURLE_OPERATION_TIMEDOUT)) {
-			applog(LOG_ERR, "HTTP request failed: %s", curl_err_str);
-			goto err_out;
-		}
-	}
-
-	/* If X-Stratum was found, activate Stratum */
-	if (hi.stratum_url &&
-	    !strncasecmp(hi.stratum_url, "stratum+tcp://", 14) &&
-	    !(opt_proxy && opt_proxy_type == CURLPROXY_HTTP)) {
-		tq_push(thr_info[stratum_thr_id].q, hi.stratum_url);
-		hi.stratum_url = NULL;
-	}
-
-	if (!all_data.buf || !all_data.len) {
-		applog(LOG_ERR, "Empty data received in json_rpc_call.");
-		goto err_out;
-	}
-
-	httpdata = (char*) all_data.buf;
-
-	if (*httpdata != '{' && *httpdata != '[') {
-		long errcode = 0;
-		CURLcode c = curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &errcode);
-		if (c == CURLE_OK && errcode == 401) {
-			applog(LOG_ERR, "You are not authorized, check your login and password.");
-			goto err_out;
-		}
-	}
-
-	val = JSON_LOADS(httpdata, &err);
-	if (!val) {
-		applog(LOG_ERR, "JSON decode failed(%d): %s", err.line, err.text);
-		if (opt_protocol)
-			applog(LOG_DEBUG, "%s", httpdata);
-		goto err_out;
-	}
-
-	if (opt_protocol) {
-		char *s = json_dumps(val, JSON_INDENT(3));
-		applog(LOG_DEBUG, "JSON protocol response:\n%s\n", s);
-		free(s);
-	}
-
-	/* JSON-RPC valid response returns a non-null 'result',
-	 * and a null 'error'. */
-	res_val = json_object_get(val, "result");
-	err_val = json_object_get(val, "error");
-
-	if (!res_val ||
-		//if (!res_val || json_is_null(res_val) ||
-		(err_val && !json_is_null(err_val))) {
-		char *s = NULL;
-
-		if (err_val) {
-			s = json_dumps(err_val, 0);
-			json_t *msg = json_object_get(err_val, "message");
-			json_t *err_code = json_object_get(err_val, "code");
-			if (curl_err && json_integer_value(err_code))
-				*curl_err = (int) json_integer_value(err_code);
-
-			if (json_is_string(msg)) {
-				free(s);
-				s = strdup(json_string_value(msg));
-			}
-			json_decref(err_val);
-		}
-		else
-			s = strdup("(unknown reason)");
-
-		if (!curl_err || opt_debug)
-			applog(LOG_ERR, "JSON-RPC call failed: %s", s);
-
-		free(s);
-
-		goto err_out;
-	}
-
-	if (hi.reason)
-		json_object_set_new(val, "reject-reason", json_string(hi.reason));
-
-	databuf_free(&all_data);
-	curl_slist_free_all(headers);
-	curl_easy_reset(curl);
-	return val;
-
-err_out:
-	free(hi.lp_path);
-	free(hi.reason);
-	free(hi.stratum_url);
-	databuf_free(&all_data);
-	curl_slist_free_all(headers);
-	curl_easy_reset(curl);
-	return NULL;
-}
+//static json_t *json_rpc_call(CURL *curl, const char *url,
+//		      const char *userpass, const char *rpc_req,
+//		      bool longpoll_scan, bool longpoll, bool keepalive, int *curl_err)
+//{
+//	json_t *val, *err_val, *res_val;
+//	int rc;
+//	struct data_buffer all_data = { 0 };
+//	struct upload_buffer upload_data;
+//	json_error_t err;
+//	struct curl_slist *headers = NULL;
+//	char *httpdata;
+//	char len_hdr[64], hashrate_hdr[64];
+//	char curl_err_str[CURL_ERROR_SIZE] = { 0 };
+//	long timeout = longpoll ? opt_timeout : opt_timeout/2;
+//	struct header_info hi = { 0 };
+//	bool lp_scanning = longpoll_scan;
+//
+//	/* it is assumed that 'curl' is freshly [re]initialized at this pt */
+//
+//	if (opt_protocol)
+//		curl_easy_setopt(curl, CURLOPT_VERBOSE, 1);
+//	curl_easy_setopt(curl, CURLOPT_URL, url);
+//	if (opt_cert) {
+//		curl_easy_setopt(curl, CURLOPT_CAINFO, opt_cert);
+//		// ignore CN domain name, allow to move cert files
+//		curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0);
+//	}
+//	curl_easy_setopt(curl, CURLOPT_ENCODING, "");
+//	curl_easy_setopt(curl, CURLOPT_FAILONERROR, 0);
+//	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
+//	curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1);
+//	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, all_data_cb);
+//	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &all_data);
+//	curl_easy_setopt(curl, CURLOPT_READFUNCTION, upload_data_cb);
+//	curl_easy_setopt(curl, CURLOPT_READDATA, &upload_data);
+//#if LIBCURL_VERSION_NUM >= 0x071200
+//	curl_easy_setopt(curl, CURLOPT_SEEKFUNCTION, &seek_data_cb);
+//	curl_easy_setopt(curl, CURLOPT_SEEKDATA, &upload_data);
+//#endif
+//	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_err_str);
+//	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1);
+//	curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout);
+//	curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, resp_hdr_cb);
+//	curl_easy_setopt(curl, CURLOPT_HEADERDATA, &hi);
+//	if (opt_proxy) {
+//		curl_easy_setopt(curl, CURLOPT_PROXY, opt_proxy);
+//		curl_easy_setopt(curl, CURLOPT_PROXYTYPE, opt_proxy_type);
+//	}
+//	if (userpass) {
+//		curl_easy_setopt(curl, CURLOPT_USERPWD, userpass);
+//		curl_easy_setopt(curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+//	}
+//#if LIBCURL_VERSION_NUM >= 0x070f06
+//	if (keepalive)
+//		curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, sockopt_keepalive_cb);
+//#endif
+//	curl_easy_setopt(curl, CURLOPT_POST, 1);
+//
+//	if (opt_protocol)
+//		applog(LOG_DEBUG, "JSON protocol request:\n%s", rpc_req);
+//
+//	upload_data.buf = rpc_req;
+//	upload_data.len = strlen(rpc_req);
+//	upload_data.pos = 0;
+//	sprintf(len_hdr, "Content-Length: %lu", (unsigned long) upload_data.len);
+//	sprintf(hashrate_hdr, "X-Mining-Hashrate: %llu", (unsigned long long) global_hashrate);
+//
+//	headers = curl_slist_append(headers, "Content-Type: application/json");
+//	headers = curl_slist_append(headers, len_hdr);
+//	headers = curl_slist_append(headers, "User-Agent: " USER_AGENT);
+//	headers = curl_slist_append(headers, "X-Mining-Extensions: longpoll noncerange reject-reason");
+//	headers = curl_slist_append(headers, hashrate_hdr);
+//	headers = curl_slist_append(headers, "Accept:"); /* disable Accept hdr*/
+//	headers = curl_slist_append(headers, "Expect:"); /* disable Expect hdr*/
+//
+//	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+//
+//	rc = curl_easy_perform(curl);
+//	if (curl_err != NULL)
+//		*curl_err = rc;
+//	if (rc) {
+//		if (!(longpoll && rc == CURLE_OPERATION_TIMEDOUT)) {
+//			applog(LOG_ERR, "HTTP request failed: %s", curl_err_str);
+//			goto err_out;
+//		}
+//	}
+//
+//	/* If X-Stratum was found, activate Stratum */
+//	if (hi.stratum_url &&
+//	    !strncasecmp(hi.stratum_url, "stratum+tcp://", 14) &&
+//	    !(opt_proxy && opt_proxy_type == CURLPROXY_HTTP)) {
+//		tq_push(thr_info[stratum_thr_id].q, hi.stratum_url);
+//		hi.stratum_url = NULL;
+//	}
+//
+//	if (!all_data.buf || !all_data.len) {
+//		applog(LOG_ERR, "Empty data received in json_rpc_call.");
+//		goto err_out;
+//	}
+//
+//	httpdata = (char*) all_data.buf;
+//
+//	if (*httpdata != '{' && *httpdata != '[') {
+//		long errcode = 0;
+//		CURLcode c = curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &errcode);
+//		if (c == CURLE_OK && errcode == 401) {
+//			applog(LOG_ERR, "You are not authorized, check your login and password.");
+//			goto err_out;
+//		}
+//	}
+//
+//	val = JSON_LOADS(httpdata, &err);
+//	if (!val) {
+//		applog(LOG_ERR, "JSON decode failed(%d): %s", err.line, err.text);
+//		if (opt_protocol)
+//			applog(LOG_DEBUG, "%s", httpdata);
+//		goto err_out;
+//	}
+//
+//	if (opt_protocol) {
+//		char *s = json_dumps(val, JSON_INDENT(3));
+//		applog(LOG_DEBUG, "JSON protocol response:\n%s\n", s);
+//		free(s);
+//	}
+//
+//	/* JSON-RPC valid response returns a non-null 'result',
+//	 * and a null 'error'. */
+//	res_val = json_object_get(val, "result");
+//	err_val = json_object_get(val, "error");
+//
+//	if (!res_val ||
+//		//if (!res_val || json_is_null(res_val) ||
+//		(err_val && !json_is_null(err_val))) {
+//		char *s = NULL;
+//
+//		if (err_val) {
+//			s = json_dumps(err_val, 0);
+//			json_t *msg = json_object_get(err_val, "message");
+//			json_t *err_code = json_object_get(err_val, "code");
+//			if (curl_err && json_integer_value(err_code))
+//				*curl_err = (int) json_integer_value(err_code);
+//
+//			if (json_is_string(msg)) {
+//				free(s);
+//				s = strdup(json_string_value(msg));
+//			}
+//			json_decref(err_val);
+//		}
+//		else
+//			s = strdup("(unknown reason)");
+//
+//		if (!curl_err || opt_debug)
+//			applog(LOG_ERR, "JSON-RPC call failed: %s", s);
+//
+//		free(s);
+//
+//		goto err_out;
+//	}
+//
+//	if (hi.reason)
+//		json_object_set_new(val, "reject-reason", json_string(hi.reason));
+//
+//	databuf_free(&all_data);
+//	curl_slist_free_all(headers);
+//	curl_easy_reset(curl);
+//	return val;
+//
+//err_out:
+//	free(hi.lp_path);
+//	free(hi.reason);
+//	free(hi.stratum_url);
+//	databuf_free(&all_data);
+//	curl_slist_free_all(headers);
+//	curl_easy_reset(curl);
+//	return NULL;
+//}
 
 /* getwork calls with pool pointer (wallet/longpoll pools) */
-json_t *json_rpc_call_pool(CURL *curl, struct pool_infos *pool, const char *req,
-	bool longpoll_scan, bool longpoll, int *curl_err)
-{
-	char userpass[512];
-	// todo, malloc and store that in pool array
-	snprintf(userpass, sizeof(userpass), "%s%c%s", pool->user,
-		strlen(pool->pass)?':':'\0', pool->pass);
-
-	return json_rpc_call(curl, pool->url, userpass, req, longpoll_scan, false, false, curl_err);
-}
-
-/* called only from longpoll thread, we have the lp_url */
-json_t *json_rpc_longpoll(CURL *curl, char *lp_url, struct pool_infos *pool, const char *req, int *curl_err)
-{
-	char userpass[512];
-	snprintf(userpass, sizeof(userpass), "%s%c%s", pool->user,
-		strlen(pool->pass)?':':'\0', pool->pass);
-
-	// on pool rotate by time-limit, this keepalive can be a problem
-	bool keepalive = pool->time_limit == 0 || pool->time_limit > opt_timeout;
-
-	return json_rpc_call(curl, lp_url, userpass, req, false, true, keepalive, curl_err);
-}
+//json_t *json_rpc_call_pool(CURL *curl, struct pool_infos *pool, const char *req,
+//	bool longpoll_scan, bool longpoll, int *curl_err)
+//{
+//	char userpass[512];
+//	// todo, malloc and store that in pool array
+//	snprintf(userpass, sizeof(userpass), "%s%c%s", pool->user,
+//		strlen(pool->pass)?':':'\0', pool->pass);
+//
+//	return json_rpc_call(curl, pool->url, userpass, req, longpoll_scan, false, false, curl_err);
+//}
+//
+///* called only from longpoll thread, we have the lp_url */
+//json_t *json_rpc_longpoll(CURL *curl, char *lp_url, struct pool_infos *pool, const char *req, int *curl_err)
+//{
+//	char userpass[512];
+//	snprintf(userpass, sizeof(userpass), "%s%c%s", pool->user,
+//		strlen(pool->pass)?':':'\0', pool->pass);
+//
+//	// on pool rotate by time-limit, this keepalive can be a problem
+//	bool keepalive = pool->time_limit == 0 || pool->time_limit > opt_timeout;
+//
+//	return json_rpc_call(curl, lp_url, userpass, req, false, true, keepalive, curl_err);
+//}
 
 json_t *json_load_url(char* cfg_url, json_error_t *err)
 {
