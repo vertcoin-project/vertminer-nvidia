@@ -25,14 +25,12 @@ extern char* rpc_user;
 extern char* rpc_pass;
 extern char* short_url;
 
-extern struct work _ALIGN(64) g_work;
 extern struct stratum_ctx * volatile stratum;
 extern pthread_mutex_t stats_lock;
 extern time_t firstwork_time;
 
-extern volatile time_t g_work_time;
-extern volatile int pool_switch_count;
-extern volatile bool pool_is_switching;
+extern struct work _ALIGN(64) g_work[MAX_STRATUM_THREADS];
+extern volatile time_t g_work_time[MAX_STRATUM_THREADS];
 extern uint8_t conditional_state[MAX_GPUS];
 
 extern double thr_hashrates[MAX_GPUS];
@@ -192,8 +190,8 @@ bool pool_switch(struct stratum_ctx *ctx, int pooln)
 
 		ctx->pool_switch_count++;
 		net_diff = 0;
-		g_work_time = 0;
-		g_work.data[0] = 0;
+		g_work_time[ctx->id] = 0;
+		g_work[ctx->id].data[0] = 0;
 		ctx->pool_is_switching = true;
 		ctx->need_reset = true;
 		// used to get the pool uptime
