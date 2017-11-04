@@ -28,6 +28,8 @@ extern char* short_url;
 extern struct work _ALIGN(64) g_work;
 extern struct stratum_ctx stratum;
 extern pthread_mutex_t stratum_work_lock;
+extern pthread_mutex_t g_work_lock;
+extern pthread_mutex_t g_work_time_lock;
 extern pthread_mutex_t stats_lock;
 extern bool stratum_need_reset;
 extern time_t firstwork_time;
@@ -194,12 +196,17 @@ bool pool_switch(int thr_id, int pooln)
 
 		pool_switch_count++;
 		net_diff = 0;
+		pthread_mutex_lock(&g_work_lock);
+		pthread_mutex_lock(&g_work_time_lock);
 		g_work_time = 0;
 		g_work.data[0] = 0;
+		pthread_mutex_unlock(&g_work_lock);
+		pthread_mutex_unlock(&g_work_time_lock);
 		pool_is_switching = true;
 		stratum_need_reset = true;
 		// used to get the pool uptime
 		firstwork_time = time(NULL);
+		printf("%s restarting all threads\n", __func__);
 		restart_threads();
 		// reset wait states
 		for (int n=0; n<opt_n_threads; n++)

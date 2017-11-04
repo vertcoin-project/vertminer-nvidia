@@ -199,7 +199,8 @@ void cuda_reset_device(int thr_id, bool *init)
 			}
 		}
 		// force exit from algo's scan loops/function
-		restart_threads();
+		printf("%s restarting thread %d\n", __func__, thr_id);
+		restart_thread(thr_id);
 		cudaDeviceSynchronize();
 		while (cudaStreamQuery(NULL) == cudaErrorNotReady)
 			usleep(1000);

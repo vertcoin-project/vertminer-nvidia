@@ -179,6 +179,7 @@ int api_thr_id = -1;
 bool stratum_need_reset = false;
 volatile bool abort_flag = false;
 struct work_restart *work_restart = NULL;
+pthread_mutex_t *work_restart_lock = NULL;
 static int app_exit_code = EXIT_CODE_OK;
 
 pthread_mutex_t applog_lock;
@@ -395,7 +396,8 @@ Scrypt specific options:\n\
 
 struct work _ALIGN(64) g_work;
 volatile time_t g_work_time;
-pthread_mutex_t g_work_lock;
+pthread_mutex_t g_work_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t g_work_time_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // get const array size (defined in vertminer.cpp)
 int options_count()
@@ -470,6 +472,7 @@ void get_currentalgo(char* buf, int sz)
 void proper_exit(int reason)
 {
 	free_snarfs(sf);
+	printf("%s restarting all threads\n", __func__);
 	restart_threads();
 	if (abort_flag) /* already called */
 		return;
@@ -601,7 +604,9 @@ int share_result(int result, int pooln, double sharediff, const char *reason)
 		if (!check_dups && strncasecmp(reason, "duplicate", 9) == 0) {
 			applog(LOG_WARNING, "enabling duplicates check feature");
 			check_dups = true;
+			pthread_mutex_lock(&g_work_time_lock);
 			g_work_time = 0;
+			pthread_mutex_unlock(&g_work_time_lock);
 		}
 	}
 	return 1;
@@ -659,7 +664,9 @@ static bool submit_upstream_work(CURL *curl, struct work *work)
 		}
 		free(noncestr);
 		// prevent useless computing on some pools
+		pthread_mutex_lock(&g_work_time_lock);
 		g_work_time = 0;
+		pthread_mutex_unlock(&g_work_time_lock);
 		restart_threads();
 		return true;
 	}
@@ -934,7 +941,17 @@ void restart_threads(void)
 		applog(LOG_DEBUG,"%s", __FUNCTION__);
 
 	for (int i = 0; i < opt_n_threads && work_restart; i++)
+	{
+		pthread_mutex_lock(&work_restart_lock[i]);
 		work_restart[i].restart = 1;
+		pthread_mutex_unlock(&work_restart_lock[i]);
+	}
+}
+void restart_thread(int thr_id)
+{
+	pthread_mutex_lock(&work_restart_lock[thr_id]);
+	work_restart[thr_id].restart = 1;
+	pthread_mutex_unlock(&work_restart_lock[thr_id]);
 }
 
 static bool wanna_mine(int thr_id, struct snarfs *sf)
@@ -1085,6 +1102,7 @@ static void *miner_thread(void *userdata)
 		int nodata_check_oft = 0;
 		bool regen = false;
 
+
 		// &work.data[19]
 		int wcmplen = 76;
 		int wcmpoft = 0;
@@ -1106,7 +1124,7 @@ static void *miner_thread(void *userdata)
 		nonceptr = (uint32_t*) (((char*)work.data) + wcmplen);
 		pthread_mutex_lock(&g_work_lock);
 		extrajob |= work_done;
-
+		
 		regen = (nonceptr[0] >= end_nonce);
 		regen = regen || extrajob;
 
@@ -1115,14 +1133,14 @@ static void *miner_thread(void *userdata)
 			extrajob = false;
 			if (stratum_gen_work(&stratum, &g_work))
 			{
+				pthread_mutex_lock(&g_work_time_lock);
 				g_work_time = time(NULL);
+				pthread_mutex_unlock(&g_work_time_lock);
 				thr_cur_pooln = g_work.pooln;
 			}
 			
 		}
 
-		if (thr_id == 0)
-			determine_snarfing(sf);
 
 		if (!opt_benchmark && (g_work.height != work.height || memcmp(work.target, g_work.target, sizeof(work.target))))
 		{
@@ -1208,8 +1226,9 @@ static void *miner_thread(void *userdata)
 		}
 
 		pool_on_hold = false;
-
+		pthread_mutex_lock(&work_restart_lock[thr_id]);
 		work_restart[thr_id].restart = 0;
+		pthread_mutex_unlock(&work_restart_lock[thr_id]);
 
 		/* adjust max_nonce to meet target scan time */
 		max64 = LP_SCANTIME;
@@ -1338,8 +1357,16 @@ static void *miner_thread(void *userdata)
 		if (abort_flag)
 			break; // time to leave the mining loop...
 
+		pthread_mutex_lock(&work_restart_lock[thr_id]);
 		if (work_restart[thr_id].restart)
+		{
+			work_restart[thr_id].restart = 0;
+			pthread_mutex_unlock(&work_restart_lock[thr_id]);
+			if (thr_id == 0)
+				determine_snarfing(sf);
 			continue;
+		}
+		pthread_mutex_unlock(&work_restart_lock[thr_id]);
 
 		/* record scanhash elapsed time */
 		gettimeofday(&tv_end, NULL);
@@ -1530,9 +1557,11 @@ wait_stratum_url:
 		}
 
 		while (!stratum.curl && !abort_flag) {
+			pthread_mutex_lock(&g_work_time_lock);
 			pthread_mutex_lock(&g_work_lock);
 			g_work_time = 0;
 			g_work.data[0] = 0;
+			pthread_mutex_unlock(&g_work_time_lock);
 			pthread_mutex_unlock(&g_work_lock);
 			restart_threads();
 
@@ -1567,9 +1596,13 @@ wait_stratum_url:
 		    (!g_work_time || strncmp(stratum.job.job_id, g_work.job_id + 8, sizeof(g_work.job_id)-8))) {
 			pthread_mutex_lock(&g_work_lock);
 			if (stratum_gen_work(&stratum, &g_work))
+			{
+				pthread_mutex_lock(&g_work_time_lock);
 				g_work_time = time(NULL);
+				pthread_mutex_unlock(&g_work_time_lock);
+			}
 			if (stratum.job.clean) {
-				static uint32_t last_bloc_height;
+				static uint32_t last_bloc_height = -1;
 				if (!opt_quiet && stratum.job.height != last_bloc_height) {
 					last_bloc_height = stratum.job.height;
 					if (net_diff > 0.)
@@ -2638,6 +2671,10 @@ int main(int argc, char *argv[])
 
 	work_restart = (struct work_restart *)calloc(opt_n_threads, sizeof(*work_restart));
 	if (!work_restart)
+		return EXIT_CODE_SW_INIT_ERROR;
+
+	work_restart_lock =  (pthread_mutex_t *) calloc(opt_n_threads, sizeof(pthread_mutex_t));
+	if (!work_restart_lock)
 		return EXIT_CODE_SW_INIT_ERROR;
 
 	thr_info = (struct thr_info *)calloc(opt_n_threads + 4, sizeof(*thr));

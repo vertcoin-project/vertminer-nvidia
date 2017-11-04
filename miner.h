@@ -708,6 +708,7 @@ int dev_kol_init();
 
 void parse_arg(int key, char *arg);
 void proper_exit(int reason);
+void restart_thread(int thr_id);
 void restart_threads(void);
 
 size_t time2str(char* buf, time_t timer);
