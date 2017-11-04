@@ -137,8 +137,6 @@ void determine_snarfing(struct snarfs *sf)
 	uint64_t current_time = time(NULL);
 	if (unlikely(!sf->enabled && (current_time > sf->last_stop_time_plus_period)))
 	{
-		printf("%s:want_to_enable = true\n", __func__);
-
 		sf->want_to_enable = true;
 	}
 	else if (unlikely(sf->enabled && (current_time > sf->last_start_time_plus_period)))
@@ -156,7 +154,6 @@ bool  snarf_time(struct snarfs *sf, int thr_id)
 {
 	if (unlikely(!sf))
 	 return false;
-	printf("%s want_to_enable = %d sf->enabled = %d pool_is_switching = %d\n", __func__, sf->want_to_enable, sf->enabled, pool_is_switching);
 	if ((sf->want_to_enable && !sf->enabled) && (!pool_is_switching))
 	{
 		sf->presnarf_pool = &pools[cur_pooln];

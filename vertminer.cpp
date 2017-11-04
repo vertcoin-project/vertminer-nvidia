@@ -2676,6 +2676,10 @@ int main(int argc, char *argv[])
 	work_restart_lock =  (pthread_mutex_t *) calloc(opt_n_threads, sizeof(pthread_mutex_t));
 	if (!work_restart_lock)
 		return EXIT_CODE_SW_INIT_ERROR;
+	for (int i = 0; i < opt_n_threads; i++)
+	{
+		work_restart_lock[i] = PTHREAD_MUTEX_INITIALIZER;
+	}
 
 	thr_info = (struct thr_info *)calloc(opt_n_threads + 4, sizeof(*thr));
 	if (!thr_info)
