@@ -33,10 +33,9 @@
 #include <stddef.h>
 #include <string.h>
 #include <limits.h>
+#include <stdio.h>
 
 #include "sph_blake.h"
-
-int blake256_rounds = 14;
 
 #ifdef __cplusplus
 extern "C"{
@@ -550,7 +549,7 @@ static const sph_u64 CB[16] = {
 		M[0xD] = sph_dec32be_aligned(buf + 52); \
 		M[0xE] = sph_dec32be_aligned(buf + 56); \
 		M[0xF] = sph_dec32be_aligned(buf + 60); \
-		for (r = 0; r < blake256_rounds; r ++) \
+		for (r = 0; r < 14; r ++) \
 			ROUND_S(r); \
 		H0 ^= S0 ^ V0 ^ V8; \
 		H1 ^= S1 ^ V1 ^ V9; \
@@ -609,14 +608,12 @@ static const sph_u64 CB[16] = {
 		ROUND_S(5); \
 		ROUND_S(6); \
 		ROUND_S(7); \
-		if (blake256_rounds == 14) { \
 		ROUND_S(8); \
 		ROUND_S(9); \
 		ROUND_S(0); \
 		ROUND_S(1); \
 		ROUND_S(2); \
 		ROUND_S(3); \
-		} \
 		H0 ^= S0 ^ V0 ^ V8; \
 		H1 ^= S1 ^ V1 ^ V9; \
 		H2 ^= S2 ^ V2 ^ VA; \
@@ -830,13 +827,62 @@ blake32(sph_blake_small_context *sc, const void *data, size_t len)
 		len -= clen;
 		if (ptr == sizeof sc->buf) {
 			if ((T0 = SPH_T32(T0 + 512)) < 512)
+			{
 				T1 = SPH_T32(T1 + 1);
+			}
 			COMPRESS32;
 			ptr = 0;
 		}
 	}
 	WRITE_STATE32(sc);
 	sc->ptr = ptr;
+}
+static void
+blake32_full_80(sph_blake_small_context *sc, const void *data)
+{
+	unsigned char *buf;
+	size_t len = 80;
+	DECL_STATE32
+
+	buf = sc->buf;
+	
+	READ_STATE32(sc);
+	memcpy(buf, data, 64);
+	data = (const unsigned char *)data + 64;
+	T0 = 512;
+	COMPRESS32;
+    
+	memcpy(buf + 0, data, 16);
+	data = (const unsigned char *)data + 16;
+	WRITE_STATE32(sc);
+    sc->ptr = 16;
+
+	union {
+		unsigned char buf[64];
+		sph_u32 dummy;
+	} u;
+
+	u.buf[16] = 0x80;
+    sc->T0 = 128;
+    memset(u.buf + 17, 0, 39);
+    u.buf[55] |= 1;
+    sph_enc32be_aligned(u.buf + 56, 0);
+    sph_enc32be_aligned(u.buf + 60, 640);
+
+	READ_STATE32(sc);
+    memcpy(buf + 16, (void *) (u.buf + 16),  48);
+	T0 = 640;
+	COMPRESS32;
+	WRITE_STATE32(sc);
+}
+
+static void
+blake32_full_80_close(sph_blake_small_context *sc, void *dst)
+{
+	size_t  k;
+	unsigned char * out = dst;
+	for (k = 0; k < 8; k ++)
+		sph_enc32be(out + (k << 2), sc->H[k]);
 }
 
 static void
@@ -853,6 +899,7 @@ blake32_close(sph_blake_small_context *sc,
 	sph_u32 th, tl;
 	unsigned char *out;
 
+	
 	ptr = sc->ptr;
 	bit_len = ((unsigned)ptr << 3) + n;
 	z = 0x80 >> n;
@@ -869,9 +916,12 @@ blake32_close(sph_blake_small_context *sc,
 		sc->T0 -= 512 - bit_len;
 	}
 	if (bit_len <= 446) {
+
 		memset(u.buf + ptr + 1, 0, 55 - ptr);
 		if (out_size_w32 == 8)
 			u.buf[55] |= 1;
+
+
 		sph_enc32be_aligned(u.buf + 56, th);
 		sph_enc32be_aligned(u.buf + 60, tl);
 		blake32(sc, u.buf + ptr, 64 - ptr);
@@ -1039,14 +1089,16 @@ sph_blake256_init(void *cc)
 void
 sph_blake256(void *cc, const void *data, size_t len)
 {
-	blake32(cc, data, len);
+	blake32_full_80(cc, data);
+	//blake32(cc, data, len);
 }
 
 /* see sph_blake.h */
 void
 sph_blake256_close(void *cc, void *dst)
 {
-	sph_blake256_addbits_and_close(cc, 0, 0, dst);
+	blake32_full_80_close(cc, dst);
+	//sph_blake256_addbits_and_close(cc, 0, 0, dst);
 }
 
 /* see sph_blake.h */
@@ -1061,7 +1113,8 @@ sph_blake256_addbits_and_close(void *cc, unsigned ub, unsigned n, void *dst)
 void
 sph_blake256_set_rounds(int rounds)
 {
-	blake256_rounds = rounds;
+    (void) rounds;
+    return;
 }
 
 #if SPH_64
