@@ -1,229 +1,130 @@
+/*
+*	Lyra2v2 kernel merged from nicehash repository
+*	Based on djm34/VTC sources and incredible 2x boost by Nanashi Meiyo-Meijin (May 2016)
+*/
+
 #include <stdio.h>
-#include <stdint.h>
 #include <memory.h>
+#include "cuda_vectors.h"
+#include "miner.h"
 
-#define TPB52 32
-#define TPB50 32
-#define TPB30 32
-#define TPB20 32
-
-#ifdef __INTELLISENSE__
-/* just for vstudio code colors */
-#define __CUDA_ARCH__ 520
-#endif
-
-#include "cuda_lyra2_vectors.h"
-
-#ifdef __INTELLISENSE__
-/* just for vstudio code colors */
-__device__ void __threadfence_block();
-#if __CUDA_ARCH__ >= 300
-__device__ uint32_t __shfl(uint32_t a, uint32_t b, uint32_t c);
-#endif
-#endif
+#define TPB1 32
+#define TPB2 128
 
 #define Nrow 4
 #define Ncol 4
+#define u64type uint4
+#define vectype uint48
 #define memshift 3
 
-__device__ uint2x4 *DState;
-
-__device__ __forceinline__ uint2 LD4S(const int index)
+__device__ __forceinline__ uint2 LD4S(const int index,const uint2* shared_mem)
 {
-	extern __shared__ uint2 shared_mem[];
-
 	return shared_mem[(index * blockDim.y + threadIdx.y) * blockDim.x + threadIdx.x];
 }
 
-__device__ __forceinline__ void ST4S(const int index, const uint2 data)
+__device__ __forceinline__ void ST4S(const int index, const uint2 data, uint2* shared_mem)
 {
-	extern __shared__ uint2 shared_mem[];
-
 	shared_mem[(index * blockDim.y + threadIdx.y) * blockDim.x + threadIdx.x] = data;
 }
 
 __device__ __forceinline__
-void Gfunc_v5(uint2 &a, uint2 &b, uint2 &c, uint2 &d)
-{
-	a += b; uint2 tmp = d; d.y = a.x ^ tmp.x; d.x = a.y ^ tmp.y;
-	c += d; b ^= c; b = ROR24(b);
-	a += b; d ^= a; d = ROR16(d);
-	c += d; b ^= c; b = ROR2(b, 63);
+void Gfunc_v35(uint2 &a, uint2 &b, uint2 &c, uint2 &d){
+	a += b;d = SWAPUINT2(d^a);
+	c += d;b = ROR24(b^c);
+	a += b;d = ROR16(d^a);
+	c += d;b = ROR2(b^c, 63);
 }
 
-#if __CUDA_ARCH__ >= 300
-__device__ __forceinline__ uint32_t WarpShuffle(uint32_t a, uint32_t b, uint32_t c)
+__device__ __forceinline__
+void round_lyra_v35(uint2x4 s[4])
 {
-	return __shfl(a, b, c);
+	Gfunc_v35(s[0].x, s[1].x, s[2].x, s[3].x);
+	Gfunc_v35(s[0].y, s[1].y, s[2].y, s[3].y);
+	Gfunc_v35(s[0].z, s[1].z, s[2].z, s[3].z);
+	Gfunc_v35(s[0].w, s[1].w, s[2].w, s[3].w);
+
+	Gfunc_v35(s[0].x, s[1].y, s[2].z, s[3].w);
+	Gfunc_v35(s[0].y, s[1].z, s[2].w, s[3].x);
+	Gfunc_v35(s[0].z, s[1].w, s[2].x, s[3].y);
+	Gfunc_v35(s[0].w, s[1].x, s[2].y, s[3].z);
 }
 
-__device__ __forceinline__ uint2 WarpShuffle(uint2 a, uint32_t b, uint32_t c)
+__device__ __forceinline__ uint2 __shfl(uint2 a, uint32_t b, uint32_t c)
 {
 	return make_uint2(__shfl(a.x, b, c), __shfl(a.y, b, c));
 }
 
-__device__ __forceinline__ void WarpShuffle3(uint2 &a1, uint2 &a2, uint2 &a3, uint32_t b1, uint32_t b2, uint32_t b3, uint32_t c)
+__device__ __forceinline__
+void round_lyra_v35(uint2 s[4])
 {
-	a1 = WarpShuffle(a1, b1, c);
-	a2 = WarpShuffle(a2, b2, c);
-	a3 = WarpShuffle(a3, b3, c);
-}
-
-#else
-__device__ __forceinline__ uint32_t WarpShuffle(uint32_t a, uint32_t b, uint32_t c)
-{
-	extern __shared__ uint2 shared_mem[];
-
-	const uint32_t thread = blockDim.x * threadIdx.y + threadIdx.x;
-	uint32_t *_ptr = (uint32_t*)shared_mem;
-
-	__threadfence_block();
-	uint32_t buf = _ptr[thread];
-
-	_ptr[thread] = a;
-	__threadfence_block();
-	uint32_t result = _ptr[(thread&~(c - 1)) + (b&(c - 1))];
-
-	__threadfence_block();
-	_ptr[thread] = buf;
-
-	__threadfence_block();
-	return result;
-}
-
-__device__ __forceinline__ uint2 WarpShuffle(uint2 a, uint32_t b, uint32_t c)
-{
-	extern __shared__ uint2 shared_mem[];
-
-	const uint32_t thread = blockDim.x * threadIdx.y + threadIdx.x;
-
-	__threadfence_block();
-	uint2 buf = shared_mem[thread];
-
-	shared_mem[thread] = a;
-	__threadfence_block();
-	uint2 result = shared_mem[(thread&~(c - 1)) + (b&(c - 1))];
-
-	__threadfence_block();
-	shared_mem[thread] = buf;
-
-	__threadfence_block();
-	return result;
-}
-
-__device__ __forceinline__ void WarpShuffle3(uint2 &a1, uint2 &a2, uint2 &a3, uint32_t b1, uint32_t b2, uint32_t b3, uint32_t c)
-{
-	extern __shared__ uint2 shared_mem[];
-
-	const uint32_t thread = blockDim.x * threadIdx.y + threadIdx.x;
-
-	__threadfence_block();
-	uint2 buf = shared_mem[thread];
-
-	shared_mem[thread] = a1;
-	__threadfence_block();
-	a1 = shared_mem[(thread&~(c - 1)) + (b1&(c - 1))];
-	__threadfence_block();
-	shared_mem[thread] = a2;
-	__threadfence_block();
-	a2 = shared_mem[(thread&~(c - 1)) + (b2&(c - 1))];
-	__threadfence_block();
-	shared_mem[thread] = a3;
-	__threadfence_block();
-	a3 = shared_mem[(thread&~(c - 1)) + (b3&(c - 1))];
-
-	__threadfence_block();
-	shared_mem[thread] = buf;
-	__threadfence_block();
-}
-
-#endif
-
-
-__device__ __forceinline__ void round_lyra(uint2 s[4])
-{
-	Gfunc_v5(s[0], s[1], s[2], s[3]);
-	WarpShuffle3(s[1], s[2], s[3], threadIdx.x + 1, threadIdx.x + 2, threadIdx.x + 3, 4);
-	Gfunc_v5(s[0], s[1], s[2], s[3]);
-	WarpShuffle3(s[1], s[2], s[3], threadIdx.x + 3, threadIdx.x + 2, threadIdx.x + 1, 4);
+	Gfunc_v35(s[0], s[1], s[2], s[3]);
+	s[1] = __shfl(s[1], threadIdx.x + 1, 4);
+	s[2] = __shfl(s[2], threadIdx.x + 2, 4);
+	s[3] = __shfl(s[3], threadIdx.x + 3, 4);
+	Gfunc_v35(s[0], s[1], s[2], s[3]);
+	s[1] = __shfl(s[1], threadIdx.x + 3, 4);
+	s[2] = __shfl(s[2], threadIdx.x + 2, 4);
+	s[3] = __shfl(s[3], threadIdx.x + 1, 4);
 }
 
 __device__ __forceinline__
-void round_lyra(uint2x4* s)
-{
-	Gfunc_v5(s[0].x, s[1].x, s[2].x, s[3].x);
-	Gfunc_v5(s[0].y, s[1].y, s[2].y, s[3].y);
-	Gfunc_v5(s[0].z, s[1].z, s[2].z, s[3].z);
-	Gfunc_v5(s[0].w, s[1].w, s[2].w, s[3].w);
+void reduceDuplexRowSetupV2(uint2 state[4],uint2* shared){
 
-	Gfunc_v5(s[0].x, s[1].y, s[2].z, s[3].w);
-	Gfunc_v5(s[0].y, s[1].z, s[2].w, s[3].x);
-	Gfunc_v5(s[0].z, s[1].w, s[2].x, s[3].y);
-	Gfunc_v5(s[0].w, s[1].x, s[2].y, s[3].z);
-}
-
-
-__device__ __forceinline__ void reduceDuplexRowSetupV2(uint2 state[4])
-{
-	int i, j;
 	uint2 state1[Ncol][3], state0[Ncol][3], state2[3];
 
-#if __CUDA_ARCH__ > 500
-#pragma unroll
-#endif
+	#pragma unroll 4
 	for (int i = 0; i < Ncol; i++)
 	{
-#pragma unroll
-		for (j = 0; j < 3; j++)
+		#pragma unroll 3
+		for (int j = 0; j < 3; j++)
 			state0[Ncol - i - 1][j] = state[j];
-		round_lyra(state);
+		round_lyra_v35(state);
 	}
 
-	//#pragma unroll 4
-	for (i = 0; i < Ncol; i++)
+	#pragma unroll 4
+	for (int i = 0; i < Ncol; i++)
 	{
-#pragma unroll
-		for (j = 0; j < 3; j++)
+		#pragma unroll
+		for (int j = 0; j < 3; j++)
 			state[j] ^= state0[i][j];
 
-		round_lyra(state);
+		round_lyra_v35(state);
 
-#pragma unroll
-		for (j = 0; j < 3; j++)
+		#pragma unroll
+		for (int j = 0; j < 3; j++)
 			state1[Ncol - i - 1][j] = state0[i][j];
 
-#pragma unroll
-		for (j = 0; j < 3; j++)
+		#pragma unroll
+		for (int j = 0; j < 3; j++)
 			state1[Ncol - i - 1][j] ^= state[j];
 	}
 
-	uint32_t s0 = 0;
-	uint32_t s2 = 33;
-	for (i = 0; i < Ncol; i++)
-	{
-#pragma unroll
-		for (j = 0; j < 3; j++)
+	for (int i = 0; i < Ncol; i++){
+		const uint32_t s0 = memshift * Ncol * 0 + i * memshift;
+		const uint32_t s2 = memshift * Ncol * 2 + memshift * (Ncol - 1) - i*memshift;
+		
+		#pragma unroll
+		for (int j = 0; j < 3; j++)
 			state[j] ^= state1[i][j] + state0[i][j];
 
-		round_lyra(state);
+		round_lyra_v35(state);
 
-#pragma unroll
-		for (j = 0; j < 3; j++)
+		#pragma unroll
+		for (int j = 0; j < 3; j++)
 			state2[j] = state1[i][j];
 
-#pragma unroll
-		for (j = 0; j < 3; j++)
+		#pragma unroll
+		for (int j = 0; j < 3; j++)
 			state2[j] ^= state[j];
 
-#pragma unroll
-		for (j = 0; j < 3; j++)
-			ST4S(s2 + j, state2[j]);
+		#pragma unroll
+		for (int j = 0; j < 3; j++)
+			ST4S(s2 + j, state2[j],shared);
 
-		//ˆêŒÂŽè‘O‚ÌƒXƒŒƒbƒh‚©‚çƒf[ƒ^‚ð–á‚¤(“¯Žž‚ÉˆêŒÂæ‚ÌƒXƒŒƒbƒh‚Éƒf[ƒ^‚ð‘—‚é)
-		uint2 Data0 = state[0];
-		uint2 Data1 = state[1];
-		uint2 Data2 = state[2];
-		WarpShuffle3(Data0, Data1, Data2, threadIdx.x - 1, threadIdx.x - 1, threadIdx.x - 1, 4);
+		//ÂˆÃªÂŒÃ‚ÂŽÃ¨Â‘OÂ‚ÃŒÂƒXÂƒÂŒÂƒbÂƒhÂ‚Â©Â‚Ã§ÂƒfÂ[Âƒ^Â‚Ã°Â–Ã¡Â‚â‚¬(Â“Â¯ÂŽÂžÂ‚Ã‰ÂˆÃªÂŒÃ‚ÂÃ¦Â‚ÃŒÂƒXÂƒÂŒÂƒbÂƒhÂ‚Ã‰ÂƒfÂ[Âƒ^Â‚Ã°Â‘Â—Â‚Ã©)
+		uint2 Data0 = __shfl(state[0], threadIdx.x - 1, 4);
+		uint2 Data1 = __shfl(state[1], threadIdx.x - 1, 4);
+		uint2 Data2 = __shfl(state[2], threadIdx.x - 1, 4);
 
 		if (threadIdx.x == 0)
 		{
@@ -238,39 +139,40 @@ __device__ __forceinline__ void reduceDuplexRowSetupV2(uint2 state[4])
 			state0[i][2] ^= Data2;
 		}
 
-#pragma unroll
-		for (j = 0; j < 3; j++)
-			ST4S(s0 + j, state0[i][j]);
+		#pragma unroll
+		for (int j = 0; j < 3; j++)
+			ST4S(s0 + j, state0[i][j],shared);
 
-#pragma unroll
-		for (j = 0; j < 3; j++)
+		#pragma unroll
+		for (int j = 0; j < 3; j++)
 			state0[i][j] = state2[j];
 
-		s0 += memshift;
-		s2 -= memshift;
 	}
-
-	s2 += 24;
-	for (i = 0; i < Ncol; i++)
+	
+//	#pragma nounroll
+	for (int i = 0; i < Ncol; i++)
 	{
-#pragma unroll
-		for (j = 0; j < 3; j++)
+		const uint32_t s1 = memshift * Ncol * 1 + i*memshift;
+		const uint32_t s3 = memshift * Ncol * 3 + memshift * (Ncol - 1) - i*memshift;
+
+		#pragma unroll 3
+		for (int j = 0; j < 3; j++)
 			state[j] ^= state1[i][j] + state0[Ncol - i - 1][j];
 
-		round_lyra(state);
+		round_lyra_v35(state);
 
-#pragma unroll
-		for (j = 0; j < 3; j++)
+		#pragma unroll 3
+		for (int j = 0; j < 3; j++)
 			state0[Ncol - i - 1][j] ^= state[j];
-#pragma unroll
-		for (j = 0; j < 3; j++)
-			ST4S(s2 + j, state0[Ncol - i - 1][j]);
 
-		//ˆêŒÂŽè‘O‚ÌƒXƒŒƒbƒh‚©‚çƒf[ƒ^‚ð–á‚¤(“¯Žž‚ÉˆêŒÂæ‚ÌƒXƒŒƒbƒh‚Éƒf[ƒ^‚ð‘—‚é)
-		uint2 Data0 = state[0];
-		uint2 Data1 = state[1];
-		uint2 Data2 = state[2];
-		WarpShuffle3(Data0, Data1, Data2, threadIdx.x - 1, threadIdx.x - 1, threadIdx.x - 1, 4);
+		#pragma unroll 3
+		for (int j = 0; j < 3; j++)
+			ST4S(s3 + j, state0[Ncol - i - 1][j],shared);
+
+		//ÂˆÃªÂŒÃ‚ÂŽÃ¨Â‘OÂ‚ÃŒÂƒXÂƒÂŒÂƒbÂƒhÂ‚Â©Â‚Ã§ÂƒfÂ[Âƒ^Â‚Ã°Â–Ã¡Â‚â‚¬(Â“Â¯ÂŽÂžÂ‚Ã‰ÂˆÃªÂŒÃ‚ÂÃ¦Â‚ÃŒÂƒXÂƒÂŒÂƒbÂƒhÂ‚Ã‰ÂƒfÂ[Âƒ^Â‚Ã°Â‘Â—Â‚Ã©)
+		uint2 Data0 = __shfl(state[0], threadIdx.x - 1, 4);
+		uint2 Data1 = __shfl(state[1], threadIdx.x - 1, 4);
+		uint2 Data2 = __shfl(state[2], threadIdx.x - 1, 4);
 
 		if (threadIdx.x == 0)
 		{
@@ -285,177 +187,89 @@ __device__ __forceinline__ void reduceDuplexRowSetupV2(uint2 state[4])
 			state1[i][2] ^= Data2;
 		}
 
-#pragma unroll
-		for (j = 0; j < 3; j++)
-			ST4S(s0 + j, state1[i][j]);
-
-		s0 += memshift;
-		s2 -= memshift;
+		#pragma unroll 3
+		for (int j = 0; j < 3; j++)
+			ST4S(s1 + j, state1[i][j],shared);
 	}
 }
 
-__device__ void reduceDuplexRowtV2(uint2 state[4])
+__device__
+void reduceDuplexRowtV2(const int rowIn, const int rowInOut, const int rowOut, uint2 state[4],uint2 *shared)
 {
-	uint32_t rowInOut = WarpShuffle(state[0].x, 0, 4) & 3;
+	uint2 state1[3];
+	uint32_t ps1 = memshift * Ncol * rowIn;
+	uint32_t ps2 = memshift * Ncol * rowInOut;
+	uint32_t ps3 = memshift * Ncol * rowOut;
 
-	uint2 state2[3], state1[3], last[3];
-	uint32_t s1 = 36;
-	uint32_t s2 = 12 * rowInOut;
-	uint32_t s3 = 0;
+	#pragma unroll 1
+	for (int i = 0; i < Ncol; i++){
+		uint32_t s1 = ps1 + i*memshift;
+		uint32_t s2 = ps2 + i*memshift;
+		uint32_t s3 = ps3 + i*memshift;
 
-	for (int i = 0; i < Ncol; i++)
-	{
-#pragma unroll
+		#pragma unroll 3
 		for (int j = 0; j < 3; j++)
-			state2[j] = LD4S(s2 + j);
+			state1[j] = LD4S(s2 + j,shared);
 
-#pragma unroll
-		for (int j = 0; j < 3; j++)
-			state[j] ^= LD4S(s1 + j) + state2[j];
+		#pragma unroll 3
+		for (int j = 0; j < 3; j++){
+			state[j] = state[j] ^ (state1[j] + LD4S(s1 + j,shared));
+		}
+		round_lyra_v35(state);
 
-		round_lyra(state);
-
-		//ˆêŒÂŽè‘O‚ÌƒXƒŒƒbƒh‚©‚çƒf[ƒ^‚ð–á‚¤(“¯Žž‚ÉˆêŒÂæ‚ÌƒXƒŒƒbƒh‚Éƒf[ƒ^‚ð‘—‚é)
-		uint2 Data0 = state[0];
-		uint2 Data1 = state[1];
-		uint2 Data2 = state[2];
-		WarpShuffle3(Data0, Data1, Data2, threadIdx.x - 1, threadIdx.x - 1, threadIdx.x - 1, 4);
-
-		if (threadIdx.x == 0)
+		//ï¿½ï¿½ï¿½ÂŽï¿½ï¿½Oï¿½ÌƒXï¿½ï¿½ï¿½bï¿½hï¿½ï¿½ï¿½ï¿½ï¿½fï¿½[ï¿½^ï¿½ï¿½ï¿½á‚¤(ï¿½ï¿½ï¿½ï¿½ï¿½Éˆï¿½ï¿½Âï¿½ï¿½ÌƒXï¿½ï¿½ï¿½bï¿½hï¿½Éƒfï¿½[ï¿½^ï¿½ð‘—‚ï¿½)
+		uint2 Data0 = __shfl(state[0], threadIdx.x - 1, 4);
+		uint2 Data1 = __shfl(state[1], threadIdx.x - 1, 4);
+		uint2 Data2 = __shfl(state[2], threadIdx.x - 1, 4);
+		if (threadIdx.x != 0)
 		{
-			state2[0] ^= Data2;
-			state2[1] ^= Data0;
-			state2[2] ^= Data1;
+			state1[0] ^= Data0;
+			state1[1] ^= Data1;
+			state1[2] ^= Data2;
 		}
 		else
 		{
-			state2[0] ^= Data0;
-			state2[1] ^= Data1;
-			state2[2] ^= Data2;
+			state1[0] ^= Data2;
+			state1[1] ^= Data0;
+			state1[2] ^= Data1;
 		}
 
-#pragma unroll
+		#pragma unroll 3
 		for (int j = 0; j < 3; j++)
-		{
-			ST4S(s2 + j, state2[j]);
-			ST4S(s3 + j, LD4S(s3 + j) ^ state[j]);
-		}
+			ST4S(s2 + j, state1[j],shared);
 
-		s1 += memshift;
-		s2 += memshift;
-		s3 += memshift;
+		#pragma unroll 3
+		for (int j = 0; j < 3; j++)
+			state1[j] = LD4S(s3 + j, shared);
+		
+		#pragma unroll 3
+		for (int j = 0; j < 3; j++)
+			ST4S(s3 + j, state1[j] ^ state[j],shared);
 	}
-	s1 = 0;
-	rowInOut = WarpShuffle(state[0].x, 0, 4) & 3;
-	s2 = 12 * rowInOut;
+}
 
-	for (int i = 0; i < Ncol; i++)
-	{
-#pragma unroll
-		for (int j = 0; j < 3; j++)
-			state2[j] = LD4S(s2 + j);
-
-#pragma unroll
-		for (int j = 0; j < 3; j++)
-			state[j] ^= LD4S(s1 + j) + state2[j];
-
-		round_lyra(state);
-
-		//ˆêŒÂŽè‘O‚ÌƒXƒŒƒbƒh‚©‚çƒf[ƒ^‚ð–á‚¤(“¯Žž‚ÉˆêŒÂæ‚ÌƒXƒŒƒbƒh‚Éƒf[ƒ^‚ð‘—‚é)
-		uint2 Data0 = state[0];
-		uint2 Data1 = state[1];
-		uint2 Data2 = state[2];
-		WarpShuffle3(Data0, Data1, Data2, threadIdx.x - 1, threadIdx.x - 1, threadIdx.x - 1, 4);
-
-		if (threadIdx.x == 0)
-		{
-			state2[0] ^= Data2;
-			state2[1] ^= Data0;
-			state2[2] ^= Data1;
-		}
-		else
-		{
-			state2[0] ^= Data0;
-			state2[1] ^= Data1;
-			state2[2] ^= Data2;
-		}
-
-#pragma unroll
-		for (int j = 0; j < 3; j++)
-		{
-			ST4S(s2 + j, state2[j]);
-			ST4S(s3 + j, LD4S(s3 + j) ^ state[j]);
-		}
-
-		s1 += memshift;
-		s2 += memshift;
-		s3 += memshift;
-	}
-
-	rowInOut = WarpShuffle(state[0].x, 0, 4) & 3;
-	s2 = 12 * rowInOut;
-
-	for (int i = 0; i < Ncol; i++)
-	{
-#pragma unroll
-		for (int j = 0; j < 3; j++)
-			state2[j] = LD4S(s2 + j);
-
-#pragma unroll
-		for (int j = 0; j < 3; j++)
-			state[j] ^= LD4S(s1 + j) + state2[j];
-
-		round_lyra(state);
-
-		//ˆêŒÂŽè‘O‚ÌƒXƒŒƒbƒh‚©‚çƒf[ƒ^‚ð–á‚¤(“¯Žž‚ÉˆêŒÂæ‚ÌƒXƒŒƒbƒh‚Éƒf[ƒ^‚ð‘—‚é)
-		uint2 Data0 = state[0];
-		uint2 Data1 = state[1];
-		uint2 Data2 = state[2];
-		WarpShuffle3(Data0, Data1, Data2, threadIdx.x - 1, threadIdx.x - 1, threadIdx.x - 1, 4);
-
-		if (threadIdx.x == 0)
-		{
-			state2[0] ^= Data2;
-			state2[1] ^= Data0;
-			state2[2] ^= Data1;
-		}
-		else
-		{
-			state2[0] ^= Data0;
-			state2[1] ^= Data1;
-			state2[2] ^= Data2;
-		}
-
-#pragma unroll
-		for (int j = 0; j < 3; j++)
-		{
-			ST4S(s2 + j, state2[j]);
-			ST4S(s3 + j, LD4S(s3 + j) ^ state[j]);
-		}
-
-		s1 += memshift;
-		s2 += memshift;
-		s3 += memshift;
-	}
-
-	rowInOut = WarpShuffle(state[0].x, 0, 4) & 3;
-	s2 = 12 * rowInOut;
-
-#pragma unroll
+__device__
+void reduceDuplexRowtV2_4(const int rowInOut, uint2 state[4], uint2* shared)
+{
+	int i, j;
+	uint2 last[3],last2[3];
+	const uint32_t ps1 = memshift * Ncol * 2;
+	const uint32_t ps2 = memshift * Ncol * rowInOut;
+	
+	#pragma unroll
 	for (int j = 0; j < 3; j++)
-		last[j] = LD4S(s2 + j);
+		last[j] = LD4S(ps2 + j,shared);
 
-#pragma unroll
+	#pragma unroll 
 	for (int j = 0; j < 3; j++)
-		state[j] ^= LD4S(s1 + j) + last[j];
+		state[j] ^= LD4S(ps1 + j,shared) + last[j];
 
-	round_lyra(state);
+	round_lyra_v35(state);
 
-	//ˆêŒÂŽè‘O‚ÌƒXƒŒƒbƒh‚©‚çƒf[ƒ^‚ð–á‚¤(“¯Žž‚ÉˆêŒÂæ‚ÌƒXƒŒƒbƒh‚Éƒf[ƒ^‚ð‘—‚é)
-	uint2 Data0 = state[0];
-	uint2 Data1 = state[1];
-	uint2 Data2 = state[2];
-	WarpShuffle3(Data0, Data1, Data2, threadIdx.x - 1, threadIdx.x - 1, threadIdx.x - 1, 4);
+	//ï¿½ï¿½ï¿½ÂŽï¿½ï¿½Oï¿½ÌƒXï¿½ï¿½ï¿½bï¿½hï¿½ï¿½ï¿½ï¿½ï¿½fï¿½[ï¿½^ï¿½ï¿½ï¿½á‚¤(ï¿½ï¿½ï¿½ï¿½ï¿½Éˆï¿½ï¿½Âï¿½ï¿½ÌƒXï¿½ï¿½ï¿½bï¿½hï¿½Éƒfï¿½[ï¿½^ï¿½ð‘—‚ï¿½)
+	uint2 Data0 = __shfl(state[0], threadIdx.x - 1, 4);
+	uint2 Data1 = __shfl(state[1], threadIdx.x - 1, 4);
+	uint2 Data2 = __shfl(state[2], threadIdx.x - 1, 4);
 
 	if (threadIdx.x == 0)
 	{
@@ -472,31 +286,34 @@ __device__ void reduceDuplexRowtV2(uint2 state[4])
 
 	if (rowInOut == 3)
 	{
-#pragma unroll 
-		for (int j = 0; j < 3; j++)
+		#pragma unroll 
+		for (j = 0; j < 3; j++)
 			last[j] ^= state[j];
 	}
-	s1 += memshift;
-	s2 += memshift;
 
-	for (int i = 1; i < Ncol; i++)
+	#pragma unroll
+	for (i = 1; i < Ncol; i++)
 	{
-#pragma unroll 
-		for (int j = 0; j < 3; j++)
-			state[j] ^= LD4S(s1 + j) + LD4S(s2 + j);
+		const uint32_t s1 = ps1 + i*memshift;
+		const uint32_t s2 = ps2 + i*memshift;
 
-		round_lyra(state);
+		#pragma unroll
+		for (j = 0; j < 3; j++)
+			last2[j] = LD4S(s2 + j,shared);
+			
+		#pragma unroll 
+		for (j = 0; j < 3; j++)
+			state[j] ^= LD4S(s1 + j,shared) + last2[j];
 
-		s1 += memshift;
-		s2 += memshift;
+		round_lyra_v35(state);
 	}
 
-#pragma unroll
+	#pragma unroll
 	for (int j = 0; j < 3; j++)
 		state[j] ^= last[j];
 }
 
-__constant__ uint28 blake2b_IV[2] = {
+__constant__ const uint2x4 blake2b_IV[2] = {
 	0xf3bcc908lu, 0x6a09e667lu,
 	0x84caa73blu, 0xbb67ae85lu,
 	0xfe94f82blu, 0x3c6ef372lu,
@@ -507,7 +324,7 @@ __constant__ uint28 blake2b_IV[2] = {
 	0x137e2179lu, 0x5be0cd19lu
 };
 
-__constant__ uint28 Mask[2] = {
+__constant__ const uint2x4 Mask[2] = {
 	0x00000020lu, 0x00000000lu,
 	0x00000020lu, 0x00000000lu,
 	0x00000020lu, 0x00000000lu,
@@ -518,12 +335,15 @@ __constant__ uint28 Mask[2] = {
 	0x00000000lu, 0x01000000lu
 };
 
-__global__ __launch_bounds__(64, 1)
-void lyra2v2_gpu_hash_32_1(uint32_t threads, uint32_t startNounce, uint2 *outputHash)
+__global__
+__launch_bounds__(TPB2)
+void lyra2v2_gpu_hash_32_1(uint32_t threads,uint2* DMatrix,const uint2* __restrict__ outputHash)
 {
 	const uint32_t thread = blockDim.x * blockIdx.x + threadIdx.x;
 
-	uint28 state[4];
+	uint2x4 state[4];
+
+	uint2x4 *DState = (uint2x4*)DMatrix;
 
 	if (thread < threads)
 	{
@@ -534,37 +354,31 @@ void lyra2v2_gpu_hash_32_1(uint32_t threads, uint32_t startNounce, uint2 *output
 		state[2] = blake2b_IV[0];
 		state[3] = blake2b_IV[1];
 
-#pragma unroll 2
+		#pragma unroll 1 
 		for (int i = 0; i<12; i++)
-			round_lyra(state);
+			round_lyra_v35(state);
 
 		state[0] ^= Mask[0];
 		state[1] ^= Mask[1];
 
-#pragma unroll 2
 		for (int i = 0; i<12; i++)
-			round_lyra(state);
+			round_lyra_v35(state);
 
-		DState[blockDim.x * gridDim.x * 0 + blockDim.x * blockIdx.x + threadIdx.x] = state[0];
-		DState[blockDim.x * gridDim.x * 1 + blockDim.x * blockIdx.x + threadIdx.x] = state[1];
-		DState[blockDim.x * gridDim.x * 2 + blockDim.x * blockIdx.x + threadIdx.x] = state[2];
-		DState[blockDim.x * gridDim.x * 3 + blockDim.x * blockIdx.x + threadIdx.x] = state[3];
+		DState[blockDim.x * gridDim.x * 0 + thread] = state[0];
+		DState[blockDim.x * gridDim.x * 1 + thread] = state[1];
+		DState[blockDim.x * gridDim.x * 2 + thread] = state[2];
+		DState[blockDim.x * gridDim.x * 3 + thread] = state[3];
 
 	} //thread
 }
 
-#if __CUDA_ARCH__ < 300
-__global__ __launch_bounds__(TPB20, 1)
-#elif __CUDA_ARCH__ < 500
-__global__ __launch_bounds__(TPB30, 1)
-#elif __CUDA_ARCH__ == 500
-__global__ __launch_bounds__(TPB50, 1)
-#else
-__global__ __launch_bounds__(TPB52, 1)
-#endif
-void lyra2v2_gpu_hash_32_2(uint32_t threads, uint32_t startNounce, uint64_t *outputHash)
+__global__
+__launch_bounds__(TPB1)
+void lyra2v2_gpu_hash_32_2(uint32_t threads,uint2* DState)
 {
 	const uint32_t thread = blockDim.y * blockIdx.x + threadIdx.y;
+
+	__shared__ uint2 shared[48 * TPB1];
 
 	if (thread < threads)
 	{
@@ -574,10 +388,22 @@ void lyra2v2_gpu_hash_32_2(uint32_t threads, uint32_t startNounce, uint64_t *out
 		state[2] = ((uint2*)DState)[(2 * gridDim.x * blockDim.y + thread) * blockDim.x + threadIdx.x];
 		state[3] = ((uint2*)DState)[(3 * gridDim.x * blockDim.y + thread) * blockDim.x + threadIdx.x];
 
-		reduceDuplexRowSetupV2(state);
+		reduceDuplexRowSetupV2(state,shared);
 
-		reduceDuplexRowtV2(state);
-		
+		uint32_t rowa;
+		int prev = 3;
+
+		#pragma unroll 2
+		for (int i = 0; i < 3; i++)
+		{
+			rowa = __shfl(state[0].x, 0, 4) & 3;
+			reduceDuplexRowtV2(prev, rowa, i, state,shared);
+			prev = i;
+		}
+
+		rowa = __shfl(state[0].x, 0, 4) & 3;
+		reduceDuplexRowtV2_4(rowa, state,shared);
+
 		((uint2*)DState)[(0 * gridDim.x * blockDim.y + thread) * blockDim.x + threadIdx.x] = state[0];
 		((uint2*)DState)[(1 * gridDim.x * blockDim.y + thread) * blockDim.x + threadIdx.x] = state[1];
 		((uint2*)DState)[(2 * gridDim.x * blockDim.y + thread) * blockDim.x + threadIdx.x] = state[2];
@@ -585,23 +411,26 @@ void lyra2v2_gpu_hash_32_2(uint32_t threads, uint32_t startNounce, uint64_t *out
 	} //thread
 }
 
-__global__ __launch_bounds__(64, 1)
-void lyra2v2_gpu_hash_32_3(uint32_t threads, uint32_t startNounce, uint2 *outputHash)
+__global__
+__launch_bounds__(TPB2)
+void lyra2v2_gpu_hash_32_3(uint32_t threads,const uint2* __restrict__ DMatrix,uint2 *outputHash)
 {
 	const uint32_t thread = blockDim.x * blockIdx.x + threadIdx.x;
 
-	uint28 state[4];
+	uint2x4 state[4];
+
+	uint2x4 *DState = (uint2x4*)DMatrix;
 
 	if (thread < threads)
 	{
-		state[0] = __ldg4(&DState[blockDim.x * gridDim.x * 0 + blockDim.x * blockIdx.x + threadIdx.x]);
-		state[1] = __ldg4(&DState[blockDim.x * gridDim.x * 1 + blockDim.x * blockIdx.x + threadIdx.x]);
-		state[2] = __ldg4(&DState[blockDim.x * gridDim.x * 2 + blockDim.x * blockIdx.x + threadIdx.x]);
-		state[3] = __ldg4(&DState[blockDim.x * gridDim.x * 3 + blockDim.x * blockIdx.x + threadIdx.x]);
+		state[0] = __ldg4(&DState[blockDim.x * gridDim.x * 0 + thread]);
+		state[1] = __ldg4(&DState[blockDim.x * gridDim.x * 1 + thread]);
+		state[2] = __ldg4(&DState[blockDim.x * gridDim.x * 2 + thread]);
+		state[3] = __ldg4(&DState[blockDim.x * gridDim.x * 3 + thread]);
 
-#pragma unroll 2
+		#pragma unroll 1
 		for (int i = 0; i < 12; i++)
-			round_lyra(state);
+			round_lyra_v35(state);
 
 		outputHash[thread + threads * 0] = state[0].x;
 		outputHash[thread + threads * 1] = state[0].y;
@@ -612,38 +441,19 @@ void lyra2v2_gpu_hash_32_3(uint32_t threads, uint32_t startNounce, uint2 *output
 }
 
 __host__
-void lyra2v2_cpu_init(int thr_id, uint32_t threads, uint64_t *d_matrix)
+void lyra2v2_cpu_hash_32(int thr_id, uint32_t threads,uint2* DMatrix, uint2 *d_outputHash)
 {
-	int dev_id = device_map[thr_id % MAX_GPUS];
-	// just assign the device pointer allocated in main loop
-	cudaMemcpyToSymbol(DState, &d_matrix, sizeof(uint64_t*), 0, cudaMemcpyHostToDevice);
+	dim3 grid1((threads * 4 + TPB1 - 1) / TPB1);
+	dim3 block1(4, TPB1>>2);
+
+	dim3 grid2((threads + TPB2 - 1) / TPB2);
+	dim3 block2(TPB2);
+
+	lyra2v2_gpu_hash_32_1 <<<grid2, block2 >>>(threads,DMatrix,d_outputHash);
+
+	lyra2v2_gpu_hash_32_2 <<<grid1, block1 >>>(threads,DMatrix);
+
+	lyra2v2_gpu_hash_32_3 <<<grid2, block2 >>>(threads,DMatrix,d_outputHash);
+
 }
 
-__host__
-void lyra2v2_cpu_hash_32(int thr_id, uint32_t threads, uint32_t startNounce, uint64_t *g_hash, int order)
-{
-	int dev_id = device_map[thr_id % MAX_GPUS];
-
-	uint32_t tpb = TPB52;
-
-	if (cuda_arch[dev_id] > 500) tpb = TPB52;
-	else if (cuda_arch[dev_id] == 500) tpb = TPB50;
-	else if (cuda_arch[dev_id] >= 300) tpb = TPB30;
-	else if (cuda_arch[dev_id] >= 200) tpb = TPB20;
-
-	dim3 grid1((threads * 4 + tpb - 1) / tpb);
-	dim3 block1(4, tpb >> 2);
-
-	dim3 grid2((threads + 64 - 1) / 64);
-	dim3 block2(64);
-
-	if (cuda_arch[dev_id] < 500)
-		cudaFuncSetCacheConfig(lyra2v2_gpu_hash_32_2, cudaFuncCachePreferShared);
-
-	lyra2v2_gpu_hash_32_1 << <grid2, block2 >> > (threads, startNounce, (uint2*)g_hash);
-
-	lyra2v2_gpu_hash_32_2 << <grid1, block1, 48 * sizeof(uint2) * tpb >> > (threads, startNounce, g_hash);
-
-	lyra2v2_gpu_hash_32_3 << <grid2, block2 >> > (threads, startNounce, (uint2*)g_hash);
-	//MyStreamSynchronize(NULL, order, thr_id);
-}

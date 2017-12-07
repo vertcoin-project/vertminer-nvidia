@@ -11,29 +11,29 @@ extern "C" {
 #include "cuda_helper.h"
 
 
-static uint64_t *d_hash[MAX_GPUS];
-static uint64_t* d_matrix[MAX_GPUS];
+static uint2 *d_hash[MAX_GPUS];
+static uint2 *d_matrix[MAX_GPUS];
 
-extern void blake256_cpu_init(int thr_id, uint32_t threads);
-extern void blake256_cpu_hash_80(const int thr_id, const uint32_t threads, const uint32_t startNonce, uint64_t *Hash, int order);
-extern void blake256_cpu_setBlock_80(uint32_t *pdata);
-extern void keccak256_cpu_hash_32(int thr_id, uint32_t threads, uint32_t startNonce, uint64_t *d_outputHash, int order);
-extern void keccak256_cpu_init(int thr_id, uint32_t threads);
+extern void blake256_14round_cpu_hash_80(const uint32_t threads, const uint32_t startNonce, uint2* d_Hash);
+extern void blake256_14round_cpu_setBlock_80(const uint32_t *pdata);
+
+extern void keccak256_cpu_hash_32(const int thr_id,const uint32_t threads, uint2* d_hash);
+extern void keccak256_cpu_init(int thr_id);
 extern void keccak256_cpu_free(int thr_id);
-extern void skein256_cpu_hash_32(int thr_id, uint32_t threads, uint32_t startNonce, uint64_t *d_outputHash, int order);
-extern void skein256_cpu_init(int thr_id, uint32_t threads);
-extern void cubehash256_cpu_hash_32(int thr_id, uint32_t threads, uint32_t startNounce, uint64_t *d_hash, int order);
-extern void blakeKeccak256_cpu_hash_80(const int thr_id, const uint32_t threads, const uint32_t startNonce, uint64_t *Hash, int order);
-extern void blakeKeccakcube256_cpu_hash_80(const int thr_id, const uint32_t threads, const uint32_t startNonce, uint64_t *Hash, int order);
 
-extern void lyra2v2_cpu_hash_32(int thr_id, uint32_t threads, uint32_t startNonce, uint64_t *d_outputHash, int order);
-extern void lyra2v2_cpu_init(int thr_id, uint32_t threads, uint64_t* d_matrix);
+extern void skein256_cpu_hash_32(const uint32_t threads, uint2 *d_hash);
+extern void skein256_cpu_init(int thr_id);
 
-//extern void bmw256_setTarget(const void *ptarget);
-extern void bmw256_cpu_init(int thr_id, uint32_t threads);
+extern void cubehash256_cpu_hash_32(const uint32_t threads, uint2* d_hash);
+
+extern void lyra2v2_cpu_hash_32(int thr_id, uint32_t threads,uint2* DMatrix, uint2 *d_Hash);
+extern void lyra2v2_cpu_init(int thr_id, uint2 *hash);
+
+extern void bmw256_setTarget(const void *ptarget);
+extern void bmw256_cpu_init(int thr_id);
 extern void bmw256_cpu_free(int thr_id);
-extern void bmw256_cpu_hash_32(int thr_id, uint32_t threads, uint32_t startNounce, uint64_t *g_hash, uint32_t *resultnonces, uint64_t Target);
-extern void bmw256_cpu_hash_32(int thr_id, uint32_t threads, uint32_t startNounce, uint64_t *g_hash, uint32_t *resultnonces, uint64_t Target, uint32_t **result);
+extern void bmw_set_output(int thr_id);
+extern void bmw256_cpu_hash_32(int thr_id, uint32_t threads,uint2 *g_hash, uint32_t *resultnonces, const uint2 target);
 
 void lyra2v2_hash(void *state, const void *input)
 {
@@ -92,216 +92,105 @@ void lyra2v2_hash(void *state, const void *input)
 #endif
 
 static bool init[MAX_GPUS] = { 0 };
-static uint32_t throughput[MAX_GPUS] = { 0 };
 
 extern "C" int scanhash_lyra2v2(int thr_id, struct work* work, uint32_t max_nonce, unsigned long *hashes_done)
 {
 	uint32_t *pdata = work->data;
 	uint32_t *ptarget = work->target;
 	const uint32_t first_nonce = pdata[19];
+	int dev_id = device_map[thr_id];
+	int intensity = (device_sm[dev_id] > 500) ? 22 : 20;
+	uint32_t throughput = cuda_default_throughput(dev_id, 1UL << intensity);
+	if (init[thr_id]) throughput = min(throughput, max_nonce - first_nonce);
 
 	if (opt_benchmark)
 		ptarget[7] = 0x000f;
 
 	if (!init[thr_id])
 	{
-		int dev_id = device_map[thr_id];
-		cudaDeviceProp props;
-		cudaGetDeviceProperties(&props, dev_id);
-
-		int intensity = 0;
-		// Pascal
-		if (strstr(props.name, "1080")) intensity = 22;
-		else if (strstr(props.name, "1070")) intensity = 21;
-		else if (strstr(props.name, "1060")) intensity = 21;
-		else if (strstr(props.name, "1050")) intensity = 20;
-		// Maxwell
-		else if (strstr(props.name, "TITAN X")) intensity = 21;
-		else if (strstr(props.name, "980")) intensity = 21;
-		else if (strstr(props.name, "970")) intensity = 20;
-		else if (strstr(props.name, "960")) intensity = 20;
-		else if (strstr(props.name, "950")) intensity = 19;
-		else if (strstr(props.name, "750 Ti")) intensity = 19;
-		else if (strstr(props.name, "750")) intensity = 18;
-		// Kepler`Fermi
-		else if (strstr(props.name, "TITAN Z")) intensity = 20;
-		else if (strstr(props.name, "TITAN")) intensity = 19;
-		else if (strstr(props.name, "780")) intensity = 19;
-		else if (strstr(props.name, "760")) intensity = 18;
-		else if (strstr(props.name, "730")) intensity = 16;
-		else if (strstr(props.name, "720")) intensity = 15;
-		else if (strstr(props.name, "710")) intensity = 16;
-		else if (strstr(props.name, "690")) intensity = 20;
-		else if (strstr(props.name, "680")) intensity = 19;
-		else if (strstr(props.name, "660")) intensity = 18;
-		else if (strstr(props.name, "650 Ti")) intensity = 18;
-		else if (strstr(props.name, "640")) intensity = 17;
-		else if (strstr(props.name, "630")) intensity = 16;
-		else if (strstr(props.name, "620")) intensity = 15;
-
-		else if (strstr(props.name, "90")) intensity = 18;	//590
-		else if (strstr(props.name, "80")) intensity = 18;	//480 580
-		else if (strstr(props.name, "70")) intensity = 18;	//470 570 670 770
-		else if (strstr(props.name, "65")) intensity = 17;	//465
-		else if (strstr(props.name, "60")) intensity = 17;	//460 560
-		else if (strstr(props.name, "55")) intensity = 17;	//555
-		else if (strstr(props.name, "50")) intensity = 17;	//450 550Ti 650
-		else if (strstr(props.name, "45")) intensity = 16;	//545
-		else if (strstr(props.name, "40")) intensity = 15;	//440
-		else if (strstr(props.name, "30")) intensity = 15;	//430 530
-		else if (strstr(props.name, "20")) intensity = 14;	//420 520
-		else if (strstr(props.name, "10")) intensity = 14;	//510 610
-
-		if (intensity != 0 && opt_eco_mode) intensity -= 3;
-
-		if (intensity == 0)
-		{
-			intensity = (device_sm[dev_id] > 500 && !is_windows()) ? 20 : 18;
-			throughput[thr_id] = cuda_default_throughput(dev_id, 1UL << (int)intensity);
-		}
-		else
-		{
-			//uint32_t adds = 0;
-			//	double d = floor(intensity);
-
-			/*	if ((intensity - d) > 0.0) {
-			adds = (uint32_t)floor((intensity - d) * (1 << (int)(d - 10.0)) * 1024;
-			throughput = (1 << (int)d) + adds;
-			gpulog(LOG_INFO, thr_id, "Adding %u threads to intensity %u, %u cuda threads",
-			adds, (int)d, throughput);
-			}
-			else if (gpus_intensity[n] != (1 << (int)intensity)) {
-			throughput = (1 << (int)intensity);
-			applog(LOG_INFO, "Intensity set to %u, %u cuda threads",
-			v, gpus_intensity[n]);
-			}
-			*/
-			uint32_t temp = 1UL << intensity;
-			throughput[thr_id] = cuda_default_throughput(dev_id, temp);
-
-			if (temp == throughput[thr_id])
-			{
-				gpulog(LOG_INFO, thr_id, "Intensity set to %u, %u cuda threads",
-					intensity, throughput[thr_id]);
-			}
-		}
-
 		cudaSetDevice(dev_id);
 		if (opt_cudaschedule == -1 && gpu_threads == 1) {
 			cudaDeviceReset();
 			// reduce cpu usage
 			cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
+			cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
+			cudaDeviceSetSharedMemConfig(cudaSharedMemBankSizeEightByte);			
 			CUDA_LOG_ERROR();
 		}
-		cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
 
-		blake256_cpu_init(thr_id, throughput[thr_id]);
-		keccak256_cpu_init(thr_id, throughput[thr_id]);
-		skein256_cpu_init(thr_id, throughput[thr_id]);
-		bmw256_cpu_init(thr_id, throughput[thr_id]);
+		gpulog(LOG_INFO,thr_id, "Intensity set to %g, %u cuda threads", throughput2intensity(throughput), throughput);
+		
+		cuda_get_arch(dev_id);
+		skein256_cpu_init(thr_id);
+//		keccak256_cpu_init(thr_id);
+		bmw256_cpu_init(thr_id);
 
-		// SM 3 implentation requires a bit more memory
-		size_t matrix_sz = sizeof(uint64_t) * 4 * 4;
-		CUDA_SAFE_CALL(cudaMalloc(&d_matrix[thr_id], matrix_sz * throughput[thr_id]));
-		lyra2v2_cpu_init(thr_id, throughput[thr_id], d_matrix[thr_id]);
-
-		CUDA_SAFE_CALL(cudaMalloc(&d_hash[thr_id], (size_t)32 * throughput[thr_id]));
-
-		api_set_throughput(thr_id, throughput[thr_id]);
+		CUDA_SAFE_CALL(cudaMalloc(&d_matrix[thr_id], 4 * 4 * sizeof(uint2) * throughput));
+//		lyra2v2_cpu_init(thr_id, d_matrix[thr_id]);
+		
+		CUDA_SAFE_CALL(cudaMalloc(&d_hash[thr_id], 8 * sizeof(uint32_t) * throughput));
+//		api_set_throughput(thr_id, throughput);
 		init[thr_id] = true;
 	}
-	else throughput[thr_id] = min(throughput[thr_id], max_nonce - first_nonce);
 
 	uint32_t endiandata[20];
-	for (int k = 0; k < 20; k++)
+	for (int k=0; k < 20; k++)
 		be32enc(&endiandata[k], pdata[k]);
 
-	blake256_cpu_setBlock_80(pdata);
-	//bmw256_setTarget(ptarget);
-
+	blake256_14round_cpu_setBlock_80(pdata);
+	bmw_set_output(thr_id);
 	do {
-		int order = 0;
 		uint32_t foundNonces[2] = { 0, 0 };
 
-		blakeKeccak256_cpu_hash_80(thr_id, throughput[thr_id], pdata[19], d_hash[thr_id], order++);
-		//blakeKeccakcube256_cpu_hash_80(thr_id, throughput, pdata[19], d_hash[thr_id], order++);
-		TRACE("blake  :");
-		//keccak256_cpu_hash_32(thr_id, throughput, pdata[19], d_hash[thr_id], order++);
-		TRACE("keccak :");
-		cubehash256_cpu_hash_32(thr_id, throughput[thr_id], pdata[19], d_hash[thr_id], order++);
-		TRACE("cube   :");
-		lyra2v2_cpu_hash_32(thr_id, throughput[thr_id], pdata[19], d_hash[thr_id], order++);
-		TRACE("lyra2  :");
-		skein256_cpu_hash_32(thr_id, throughput[thr_id], pdata[19], d_hash[thr_id], order++);
-		TRACE("skein  :");
-		cubehash256_cpu_hash_32(thr_id, throughput[thr_id], pdata[19], d_hash[thr_id], order++);
-		TRACE("cube   :");
+		blake256_14round_cpu_hash_80(throughput, pdata[19], d_hash[thr_id]);
+		keccak256_cpu_hash_32(thr_id,throughput, d_hash[thr_id]);
+		cubehash256_cpu_hash_32(throughput, d_hash[thr_id]);
+		lyra2v2_cpu_hash_32(thr_id, throughput,d_matrix[thr_id],d_hash[thr_id]);
+		skein256_cpu_hash_32(throughput, d_hash[thr_id]);
+		cubehash256_cpu_hash_32(throughput, d_hash[thr_id]);
+		bmw256_cpu_hash_32(thr_id, throughput, d_hash[thr_id], foundNonces, *(uint2*)&ptarget[6]);
 
-		bmw256_cpu_hash_32(thr_id, throughput[thr_id], pdata[19], d_hash[thr_id], foundNonces, ((uint64_t*)ptarget)[3]);
-
-		*hashes_done = pdata[19] - first_nonce + throughput[thr_id];
-
-		/*if (foundNonces[0] != 0)
+		if (foundNonces[0] != 0)
 		{
+			const uint32_t startNounce = pdata[19];
 			uint32_t vhash64[8];
-			be32enc(&endiandata[19], foundNonces[0]);
+			be32enc(&endiandata[19], startNounce + foundNonces[0]);
 			lyra2v2_hash(vhash64, endiandata);
 			if (vhash64[7] <= ptarget[7] && fulltest(vhash64, ptarget))
 			{
 				int res = 1;
+				*hashes_done = pdata[19] - first_nonce + throughput;
 				work_set_target_ratio(work, vhash64);
-				pdata[19] = foundNonces[0];
+				pdata[19] = startNounce + foundNonces[0];
 				// check if there was another one...
 				if (foundNonces[1] != 0)
 				{
-					be32enc(&endiandata[19], foundNonces[1]);
+					be32enc(&endiandata[19], (pdata[19]-foundNonces[ 0])+foundNonces[1]);
 					lyra2v2_hash(vhash64, endiandata);
-					pdata[21] = foundNonces[1];
-					xchg(pdata[19], pdata[21]);
+					pdata[21] = startNounce + foundNonces[1];
+//					if(!opt_quiet)
+//						applog(LOG_BLUE,"Found 2nd nonce: %08X",pdata[21]);
 					if (bn_hash_target_ratio(vhash64, ptarget) > work->shareratio[0]) {
 						work_set_target_ratio(work, vhash64);
+						xchg(pdata[19], pdata[21]);
 					}
-					res++;
+					res=2;
 				}
 				return res;
 			}
-			else if (vhash64[7] > ptarget[7])
+			else
 			{
+				if(vhash64[7]>ptarget[ 7])
 				gpulog(LOG_WARNING, thr_id, "result for %08x does not validate on CPU!", foundNonces[0]);
+				bmw_set_output(thr_id);
 			}
 		}
-		*/
-		if (foundNonces[0] != 0)
-		{
-			uint32_t vhash64[8];
-			be32enc(&endiandata[19], foundNonces[0]);
-			lyra2v2_hash(vhash64, endiandata);
 
-			int res = 1;
-			work_set_target_ratio(work, vhash64);
-			pdata[19] = foundNonces[0];
-			
-			// check if there was another one...
-			if (foundNonces[1] != 0)
-			{
-				be32enc(&endiandata[19], foundNonces[1]);
-				lyra2v2_hash(vhash64, endiandata);
-				pdata[21] = foundNonces[1];
-				xchg(pdata[19], pdata[21]);
-				if (bn_hash_target_ratio(vhash64, ptarget) > work->shareratio[0])
-				{
-					work_set_target_ratio(work, vhash64);
-				}
-				res++;
-			}
-			return res;
-		}
-		
-		if ((uint64_t)throughput[thr_id] + pdata[19] >= max_nonce) {
+		if ((uint64_t)throughput + pdata[19] >= max_nonce) {
 			pdata[19] = max_nonce;
 			break;
 		}
-		pdata[19] += throughput[thr_id];
+		pdata[19] += throughput;
 
 	} while (!work_restart[thr_id].restart && !abort_flag);
 
@@ -315,13 +204,13 @@ extern "C" void free_lyra2v2(int thr_id)
 	if (!init[thr_id])
 		return;
 
-	cudaThreadSynchronize();
+	cudaDeviceSynchronize();
 
 	cudaFree(d_hash[thr_id]);
 	cudaFree(d_matrix[thr_id]);
 
 	bmw256_cpu_free(thr_id);
-	keccak256_cpu_free(thr_id);
+//	keccak256_cpu_free(thr_id);
 
 	init[thr_id] = false;
 

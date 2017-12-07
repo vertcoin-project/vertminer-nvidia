@@ -262,7 +262,7 @@ uint32_t cuda_check_hash_branch(int thr_id, uint32_t threads, uint32_t startNoun
 
 	cuda_check_hash_branch_64 <<<grid, block>>> (threads, startNounce, d_nonceVector, d_inputHash, d_resNonces[thr_id]);
 
-	MyStreamSynchronize(NULL, order, thr_id);
+//	MyStreamSynchronize(NULL, order, thr_id);
 
 	cudaMemcpy(h_resNonces[thr_id], d_resNonces[thr_id], sizeof(uint32_t), cudaMemcpyDeviceToHost);
 

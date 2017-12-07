@@ -12,10 +12,6 @@
 
 #include "cuda_helper.h"
 
-#if __CUDA_ARCH__ < 300
-#define __shfl(x, y) (x)
-#endif
-
 #if __CUDA_ARCH__ < 320 && !defined(__ldg4)
 #define __ldg4(x) (*(x))
 #endif
@@ -27,6 +23,10 @@ typedef struct __align__(32) uint8 {
 typedef struct __align__(64) uint2_8 {
 	uint2 s0, s1, s2, s3, s4, s5, s6, s7;
 } uint2_8;
+
+typedef struct __align__(16) ulong2x2 {
+	ulonglong2 l0,l1;
+} ulonglong2x2;
 
 typedef struct __align__(64) ulonglong2to8 {
 	ulonglong2 l0,l1,l2,l3;
@@ -211,6 +211,13 @@ static __forceinline__ __device__ uchar4 operator^ (uchar4 a, uchar4 b) { return
 static __forceinline__ __device__ uchar4 operator+ (uchar4 a, uchar4 b) { return make_uchar4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w); }
 
 static __forceinline__ __device__ uint4 operator+ (uint4 a, uint4 b) { return make_uint4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w); }
+static __forceinline__ __device__ uint4 operator^ (uint4 a, uint4 b) { return make_uint4(a.x ^ b.x, a.y ^ b.y, a.z ^ b.z, a.w ^ b.w); }
+static __forceinline__ __device__ uint4 operator& (uint4 a, uint4 b) { return make_uint4(a.x & b.x, a.y & b.y, a.z & b.z, a.w & b.w); }
+static __forceinline__ __device__ uint4 operator>>(uint4 a, int b) { return make_uint4(a.x >> b, a.y >> b, a.z >> b, a.w >> b); }
+static __forceinline__ __device__ uint4 operator<<(uint4 a, int b) { return make_uint4(a.x << b, a.y << b, a.z << b, a.w << b); }
+static __forceinline__ __device__ uint4 operator* (uint4 a, int b) { return make_uint4(a.x * b, a.y * b, a.z * b, a.w * b); }
+static __forceinline__ __device__  void operator^=(uint4 &a,uint4 b) { a = a ^ b; }
+static __forceinline__ __device__  void operator+=(uint4 &a, uint4 b){ a = a + b; }
 
 static __forceinline__ __device__ ulonglong4 operator^ (ulonglong4 a, ulonglong4 b) { return make_ulonglong4(a.x ^ b.x, a.y ^ b.y, a.z ^ b.z, a.w ^ b.w); }
 static __forceinline__ __device__ ulonglong4 operator+ (ulonglong4 a, ulonglong4 b) { return make_ulonglong4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w); }
@@ -258,6 +265,11 @@ static __forceinline__ __device__ __host__ uint16 operator^ (const uint16 &a, co
 static __forceinline__ __device__  __host__ uint16 operator+ (const uint16 &a, const uint16 &b) {
 	return make_uint16(a.s0 + b.s0, a.s1 + b.s1, a.s2 + b.s2, a.s3 + b.s3, a.s4 + b.s4, a.s5 + b.s5, a.s6 + b.s6, a.s7 + b.s7,
 		a.s8 + b.s8, a.s9 + b.s9, a.sa + b.sa, a.sb + b.sb, a.sc + b.sc, a.sd + b.sd, a.se + b.se, a.sf + b.sf);
+}
+
+static __forceinline__ __device__  __host__ uint16 operator- (const uint16 &a, const uint16 &b) {
+	return make_uint16(a.s0 - b.s0, a.s1 - b.s1, a.s2 - b.s2, a.s3 - b.s3, a.s4 - b.s4, a.s5 - b.s5, a.s6 - b.s6, a.s7 - b.s7,
+		a.s8 - b.s8, a.s9 - b.s9, a.sa - b.sa, a.sb - b.sb, a.sc - b.sc, a.sd - b.sd, a.se - b.se, a.sf - b.sf);
 }
 
 static __forceinline__ __device__  uint2_16 operator^ (const uint2_16 &a, const uint2_16 &b) {
@@ -366,10 +378,10 @@ static __forceinline__ __device__ ulonglonglong operator+ (const ulonglonglong &
 
 static __forceinline__ __device__ void operator^= (ulonglong2to8 &a, const ulonglong2to8 &b) { a = a ^ b; }
 
-static __forceinline__ __device__ void operator+= (uint4 &a, uint4 b) { a = a + b; }
 static __forceinline__ __device__ void operator+= (uchar4 &a, uchar4 b) { a = a + b; }
 static __forceinline__ __device__  __host__ void operator+= (uint8 &a, const uint8 &b) { a = a + b; }
 static __forceinline__ __device__  __host__ void operator+= (uint16 &a, const uint16 &b) { a = a + b; }
+static __forceinline__ __device__  __host__ void operator-= (uint16 &a, const uint16 &b) { a = a - b; }
 static __forceinline__ __device__   void operator+= (uint2_16 &a, const uint2_16 &b) { a = a + b; }
 static __forceinline__ __device__   void operator^= (uint2_16 &a, const uint2_16 &b) { a = a + b; }
 
@@ -387,12 +399,6 @@ static __forceinline__ __device__ void operator^= (ulonglong32to64 &a, const ulo
 static __forceinline__ __device__ void operator+= (ulonglonglong &a, const ulonglonglong &b) { a = a + b; }
 static __forceinline__ __device__ void operator^= (ulonglonglong &a, const ulonglonglong &b) { a = a ^ b; }
 
-#if __CUDA_ARCH__ < 320
-
-#define rotate ROTL32
-#define rotateR ROTR32
-
-#else
 
 static __forceinline__ __device__ uint4 rotate4(uint4 vec4, uint32_t shift)
 {
@@ -404,7 +410,25 @@ static __forceinline__ __device__ uint4 rotate4(uint4 vec4, uint32_t shift)
 	return ret;
 }
 
-static __forceinline__ __device__ uint4 rotate4R(uint4 vec4, uint32_t shift)
+static __forceinline__ __device__ uint2x4 rotate2x4(const uint2x4 &vec4, uint32_t shift)
+{
+	uint2x4 ret;
+	asm("shf.l.wrap.b32 %0, %1, %2, %3;" : "=r"(ret.x.x) : "r"(vec4.x.x), "r"(vec4.x.x), "r"(shift));
+	asm("shf.l.wrap.b32 %0, %1, %2, %3;" : "=r"(ret.x.y) : "r"(vec4.x.y), "r"(vec4.x.y), "r"(shift));
+		
+	asm("shf.l.wrap.b32 %0, %1, %2, %3;" : "=r"(ret.y.x) : "r"(vec4.y.x), "r"(vec4.y.x), "r"(shift));
+	asm("shf.l.wrap.b32 %0, %1, %2, %3;" : "=r"(ret.y.y) : "r"(vec4.y.y), "r"(vec4.y.y), "r"(shift));
+		
+	asm("shf.l.wrap.b32 %0, %1, %2, %3;" : "=r"(ret.z.x) : "r"(vec4.z.x), "r"(vec4.z.x), "r"(shift));
+	asm("shf.l.wrap.b32 %0, %1, %2, %3;" : "=r"(ret.z.y) : "r"(vec4.z.y), "r"(vec4.z.y), "r"(shift));
+		
+	asm("shf.l.wrap.b32 %0, %1, %2, %3;" : "=r"(ret.w.x) : "r"(vec4.w.x), "r"(vec4.w.x), "r"(shift));
+	asm("shf.l.wrap.b32 %0, %1, %2, %3;" : "=r"(ret.w.y) : "r"(vec4.w.y), "r"(vec4.w.y), "r"(shift));
+	return ret;
+}
+
+__device__ __forceinline__
+static uint4 rotate4R(uint4 vec4, uint32_t shift)
 {
 	uint4 ret;
 	asm("shf.r.wrap.b32 %0, %1, %2, %3;" : "=r"(ret.x) : "r"(vec4.x), "r"(vec4.x), "r"(shift));
@@ -414,25 +438,23 @@ static __forceinline__ __device__ uint4 rotate4R(uint4 vec4, uint32_t shift)
 	return ret;
 }
 
-static __forceinline__ __device__ uint32_t rotate(uint32_t vec4, uint32_t shift)
-{
-	uint32_t ret;
-	asm("shf.l.wrap.b32 %0, %1, %2, %3;" : "=r"(ret) : "r"(vec4), "r"(vec4), "r"(shift));
-	return ret;
-}
-
-static __forceinline__ __device__ uint32_t rotateR(uint32_t vec4, uint32_t shift)
-{
-	uint32_t ret;
-	asm("shf.r.wrap.b32 %0, %1, %2, %3;" : "=r"(ret) : "r"(vec4), "r"(vec4), "r"(shift));
-	return ret;
-}
+#ifdef __CUDA_ARCH__
 
 static __device__ __inline__ ulonglong4 __ldg4(const ulonglong4 *ptr)
 {
 	ulonglong4 ret;
 	asm("ld.global.nc.v2.u64 {%0,%1}, [%2];"  : "=l"(ret.x), "=l"(ret.y) : __LDG_PTR(ptr));
 	asm("ld.global.nc.v2.u64 {%0,%1}, [%2+16];"  : "=l"(ret.z), "=l"(ret.w) : __LDG_PTR(ptr));
+	return ret;
+}
+
+static __device__ __inline__ ulonglong2to8 __ldg4(const ulonglong2to8 *ptr)
+{
+	ulonglong2to8 ret;
+	asm("ld.global.nc.v2.u64 {%0,%1}, [%2];"     : "=l"(ret.l0.x), "=l"(ret.l0.y) : __LDG_PTR(ptr));
+	asm("ld.global.nc.v2.u64 {%0,%1}, [%2+16];"  : "=l"(ret.l1.x), "=l"(ret.l1.y) : __LDG_PTR(ptr));
+	asm("ld.global.nc.v2.u64 {%0,%1}, [%2+32];"  : "=l"(ret.l2.x), "=l"(ret.l2.y) : __LDG_PTR(ptr));
+	asm("ld.global.nc.v2.u64 {%0,%1}, [%2+48];"  : "=l"(ret.l3.x), "=l"(ret.l3.y) : __LDG_PTR(ptr));
 	return ret;
 }
 
@@ -446,11 +468,13 @@ static __device__ __inline__ void ldg4(const ulonglong4 *ptr,ulonglong4 *ret)
 	asm("ld.global.nc.v2.u64 {%0,%1}, [%2+80];"  : "=l"(ret[2].z), "=l"(ret[2].w) : __LDG_PTR(ptr));
 }
 
-static __device__ __inline__ uint28 __ldg4(const uint28 *ptr)
+static __device__ __forceinline__ uint2x4 __ldg4(const uint2x4 *ptr)
 {
-	uint28 ret;
-	asm("ld.global.nc.v4.u32 {%0,%1,%2,%3}, [%4];"  : "=r"(ret.x.x), "=r"(ret.x.y), "=r"(ret.y.x), "=r"(ret.y.y) : __LDG_PTR(ptr));
-	asm("ld.global.nc.v4.u32 {%0,%1,%2,%3}, [%4+16];" : "=r"(ret.z.x), "=r"(ret.z.y), "=r"(ret.w.x), "=r"(ret.w.y) : __LDG_PTR(ptr));
+	uint2x4 ret;
+	asm ("ld.global.nc.v4.u32 {%0,%1,%2,%3}, [%4];"  : "=r"(ret.x.x), "=r"(ret.x.y), "=r"(ret.y.x), "=r"(ret.y.y) : __LDG_PTR(ptr));
+	asm ("ld.global.nc.v4.u32 {%0,%1,%2,%3}, [%4+16];" : "=r"(ret.z.x), "=r"(ret.z.y), "=r"(ret.w.x), "=r"(ret.w.y) : __LDG_PTR(ptr));
+//	asm("ld.global.nc.v4.u32 {%0,%1,%2,%3}, [%4];"  : "=r"(ret.x.x), "=r"(ret.x.y), "=r"(ret.y.x), "=r"(ret.y.y) : __LDG_PTR(ptr));
+//	asm("ld.global.nc.v4.u32 {%0,%1,%2,%3}, [%4+16];" : "=r"(ret.z.x), "=r"(ret.z.y), "=r"(ret.w.x), "=r"(ret.w.y) : __LDG_PTR(ptr));
 	return ret;
 }
 
@@ -522,6 +546,20 @@ static __forceinline__ __device__ uint16 swapvec(const uint16 *buf)
 	vec.sd = cuda_swab32(buf[0].sd);
 	vec.se = cuda_swab32(buf[0].se);
 	vec.sf = cuda_swab32(buf[0].sf);
+	return vec;
+}
+
+static __forceinline__ __device__ uint28 swapvec(const uint28 &buf)
+{
+	uint28 vec;
+	vec.x.x = cuda_swab32(buf.x.x);
+	vec.x.y = cuda_swab32(buf.x.y);
+	vec.y.x = cuda_swab32(buf.y.x);
+	vec.y.y = cuda_swab32(buf.y.y);
+	vec.z.x = cuda_swab32(buf.z.x);
+	vec.z.y = cuda_swab32(buf.z.y);
+	vec.w.x = cuda_swab32(buf.w.x);
+	vec.w.y = cuda_swab32(buf.w.y);
 	return vec;
 }
 
