@@ -95,7 +95,7 @@ extern int opt_api_listen; /* port */
 extern int opt_api_remote;
 
 // current stratum...
-extern struct stratum_ctx * volatile stratum;
+extern struct stratum_ctx stratum;
 
 // sysinfos.cpp
 extern int num_cpus;
@@ -108,7 +108,7 @@ char driver_version[32] = { 0 };
 
 static void gpustatus(int thr_id)
 {
-	struct pool_infos *p = &stratum->pools[stratum->cur_pooln];
+	struct pool_infos *p = &pools[cur_pooln];
 
 	if (thr_id >= 0 && thr_id < opt_n_threads) {
 		struct cgpu_info *cgpu = &thr_info[thr_id].gpu;
@@ -169,11 +169,11 @@ static char *getsummary(char *params)
 	double accps, uptime = difftime(ts, startup);
 	uint32_t wait_time = 0, solved_count = 0;
 	uint32_t accepted_count = 0, rejected_count = 0;
-	for (int p = 0; p < stratum->num_pools; p++) {
-		wait_time += stratum->pools[p].wait_time;
-		accepted_count += stratum->pools[p].accepted_count;
-		rejected_count += stratum->pools[p].rejected_count;
-		solved_count += stratum->pools[p].solved_count;
+	for (int p = 0; p < num_pools; p++) {
+		wait_time += pools[p].wait_time;
+		accepted_count += pools[p].accepted_count;
+		rejected_count += pools[p].rejected_count;
+		solved_count += pools[p].solved_count;
 	}
 	accps = (60.0 * accepted_count) / (uptime ? uptime : 1.0);
 
@@ -187,8 +187,8 @@ static char *getsummary(char *params)
 		PACKAGE_NAME, PACKAGE_VERSION, APIVERSION,
 		algo, active_gpus, (double)global_hashrate / 1000.,
 		solved_count, accepted_count, rejected_count,
-		accps, net_diff > 1e-6 ? net_diff : stratum->stratum_diff, (double)net_hashrate / 1000.,
-		stratum->num_pools, wait_time, uptime, (uint32_t) ts);
+		accps, net_diff > 1e-6 ? net_diff : stratum_diff, (double)net_hashrate / 1000.,
+		num_pools, wait_time, uptime, (uint32_t) ts);
 	return buffer;
 }
 
@@ -200,20 +200,20 @@ static char *getpoolnfo(char *params)
 	char *s = buffer;
 	char jobid[128] = { 0 };
 	char extra[96] = { 0 };
-	int pooln = params ? atoi(params) % stratum->num_pools : stratum->cur_pooln;
-	struct pool_infos *p = &stratum->pools[pooln];
+	int pooln = params ? atoi(params) % num_pools : cur_pooln;
+	struct pool_infos *p = &pools[pooln];
 	uint32_t last_share = 0;
 	if (p->last_share_time)
 		last_share = (uint32_t) (time(NULL) - p->last_share_time);
 
 	*s = '\0';
 
-	if (stratum->job.job_id)
-		strncpy(jobid, stratum->job.job_id, sizeof(stratum->job.job_id));
-	if (stratum->job.xnonce2) {
+	if (stratum.job.job_id)
+		strncpy(jobid, stratum.job.job_id, sizeof(stratum.job.job_id));
+	if (stratum.job.xnonce2) {
 		/* used temporary to be sure all is ok */
 		sprintf(extra, "0x");
-		cbin2hex(&extra[2], (const char*) stratum->job.xnonce2, stratum->xnonce2_size);
+		cbin2hex(&extra[2], (const char*) stratum.job.xnonce2, stratum.xnonce2_size);
 	}
 
 	snprintf(s, MYBUFSIZ, "POOL=%s;ALGO=%s;URL=%s;USER=%s;SOLV=%d;ACC=%d;REJ=%d;STALE=%u;H=%u;JOB=%s;DIFF=%.6f;"
@@ -221,8 +221,8 @@ static char *getpoolnfo(char *params)
 		strlen(p->name) ? p->name : p->short_url, algo_names[p->algo],
 		p->url, p->type & POOL_STRATUM ? p->user : "",
 		p->solved_count, p->accepted_count, p->rejected_count, p->stales_count,
-		stratum->job.height, jobid, stratum->stratum_diff, p->best_share,
-		(int) stratum->xnonce2_size, extra, stratum->answer_msec,
+		stratum.job.height, jobid, stratum_diff, p->best_share,
+		(int) stratum.xnonce2_size, extra, stratum.answer_msec,
 		p->disconnects, p->wait_time, p->work_time, last_share);
 
 	return s;
@@ -411,13 +411,13 @@ static char *remote_switchpool(char *params)
 		return buffer;
 	if (!params || strlen(params) == 0) {
 		// rotate pool test
-		ret = pool_switch_next(stratum, -1);
+		ret = pool_switch_next(&pools[0], -1);
 	} else {
 		int n = atoi(params);
-		if (n == stratum->cur_pooln)
+		if (n == cur_pooln)
 			ret = true;
-		else if (n < stratum->num_pools)
-			ret = pool_switch(stratum, n);
+		else if (n < num_pools)
+			ret = pool_switch(-1, n);
 	}
 	sprintf(buffer, "%s|", ret ? "ok" : "fail");
 	return buffer;
@@ -435,7 +435,7 @@ static char *remote_seturl(char *params)
 		return buffer;
 	if (!params || strlen(params) == 0) {
 		// rotate pool test
-		ret = pool_switch_next(stratum, -1);
+		ret = pool_switch_next(&pools[0], -1);
 	} 
 	sprintf(buffer, "%s|", ret ? "ok" : "fail");
 	return buffer;
